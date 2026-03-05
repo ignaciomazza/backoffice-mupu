@@ -3,7 +3,12 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { Booking, Operator, Service } from "@/types";
+import { Operator, Service } from "@/types";
+import {
+  resolveGroupFinanceContextAgencyId,
+  resolveGroupFinanceContextId,
+  type GroupFinanceContext,
+} from "@/components/groups/finance/contextTypes";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
@@ -428,7 +433,7 @@ const CREDIT_METHOD = "Crédito operador";
 /* ========= Props ========= */
 type Props = {
   token: string | null;
-  booking: Booking;
+  context: GroupFinanceContext;
   groupId?: string;
   groupPassengerId?: number | null;
   groupDepartureId?: number | null;
@@ -463,7 +468,7 @@ type OperatorPaymentOption = {
 
 export default function GroupOperatorPaymentForm({
   token,
-  booking,
+  context,
   groupId,
   groupPassengerId = null,
   groupDepartureId = null,
@@ -471,6 +476,8 @@ export default function GroupOperatorPaymentForm({
   operators,
   onCreated,
 }: Props) {
+  const contextId = resolveGroupFinanceContextId(context);
+  const contextAgencyId = resolveGroupFinanceContextAgencyId(context);
   const [visible, setVisible] = useState(false);
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -738,23 +745,19 @@ export default function GroupOperatorPaymentForm({
     };
   }, [action, paymentQuery, token]);
 
-  /* ========= Servicios de la reserva ========= */
-  const servicesFromBooking: Service[] = useMemo(() => {
-    const embedded = (booking as unknown as { services?: Service[] })?.services;
+  /* ========= Servicios del contexto ========= */
+  const servicesFromContext: Service[] = useMemo(() => {
+    const embedded = (context as unknown as { services?: Service[] })?.services;
     if (embedded && Array.isArray(embedded) && embedded.length > 0) {
       return embedded;
     }
-    return (availableServices || []).filter(
-      (s) =>
-        (s as unknown as { booking_id?: number })?.booking_id ===
-        booking.id_booking,
-    );
-  }, [booking, availableServices]);
+    return availableServices || [];
+  }, [context, availableServices]);
 
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const selectedServices = useMemo(
-    () => servicesFromBooking.filter((s) => selectedIds.includes(s.id_service)),
-    [servicesFromBooking, selectedIds],
+    () => servicesFromContext.filter((s) => selectedIds.includes(s.id_service)),
+    [servicesFromContext, selectedIds],
   );
   const [allocationSummary, setAllocationSummary] = useState<AllocationSummary>({
     allocations: [],
@@ -770,9 +773,9 @@ export default function GroupOperatorPaymentForm({
   const [allocationResetKey, setAllocationResetKey] = useState(0);
 
   useEffect(() => {
-    const allIds = servicesFromBooking.map((s) => s.id_service);
+    const allIds = servicesFromContext.map((s) => s.id_service);
     setSelectedIds((prev) => prev.filter((id) => allIds.includes(id)));
-  }, [servicesFromBooking]);
+  }, [servicesFromContext]);
 
   useEffect(() => {
     if (selectedServices.length === 0) {
@@ -1158,7 +1161,7 @@ export default function GroupOperatorPaymentForm({
           ?.name || "Operador";
       setDescription(
         `Pago a operador ${opName} | Grupal Nº ${formatAgencyNumber(
-          booking.agency_booking_id,
+          contextAgencyId,
         )} | Servicios ${ids}`,
       );
     } else {
@@ -1170,8 +1173,8 @@ export default function GroupOperatorPaymentForm({
     lockedSvcCurrency,
     suggestedAmount,
     operators,
-    booking.agency_booking_id,
-    booking.id_booking,
+    contextAgencyId,
+    contextId,
     currencyOptions,
     allSameCurrency,
   ]);
@@ -1883,7 +1886,7 @@ export default function GroupOperatorPaymentForm({
         .join(", ");
       const desc =
         description.trim() ||
-        `Pago a operador | Grupal Nº ${formatAgencyNumber(booking.agency_booking_id)} | Servicios ${ids}`;
+        `Pago a operador | Grupal Nº ${formatAgencyNumber(contextAgencyId)} | Servicios ${ids}`;
 
       const payload: Record<string, unknown> = {
         category,
@@ -1907,7 +1910,7 @@ export default function GroupOperatorPaymentForm({
         payload.departureId = Number(groupDepartureId);
       }
       if (!groupId) {
-        payload.booking_id = booking.id_booking;
+        if (contextId) payload.booking_id = contextId;
       }
 
       if (showConversionSection && hasConversionData) {
@@ -2115,8 +2118,8 @@ export default function GroupOperatorPaymentForm({
                     ? "Asociar Pago a Operador"
                     : "Cargar Pago a Operador"}
               </p>
-              <p className="text-[11px] text-slate-600 dark:text-slate-400 md:text-xs">
-                Grupal Nº {formatAgencyNumber(booking.agency_booking_id)}
+                <p className="text-[11px] text-slate-600 dark:text-slate-400 md:text-xs">
+                Grupal Nº {formatAgencyNumber(contextAgencyId)}
               </p>
             </div>
           </div>
@@ -2175,13 +2178,13 @@ export default function GroupOperatorPaymentForm({
                 desc="Seleccioná los servicios del pago (mismo operador)."
               >
                 <div className="md:col-span-2">
-                  {servicesFromBooking.length === 0 ? (
+                  {servicesFromContext.length === 0 ? (
                     <div className="rounded-2xl border border-sky-300/70 bg-white p-4 text-[13px] text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300 md:text-sm">
                       Esta grupal no tiene servicios cargados.
                     </div>
                   ) : (
                     <div className="max-h-72 space-y-3 overflow-auto pr-1">
-                      {servicesFromBooking.map((svc) => {
+                      {servicesFromContext.map((svc) => {
                         const checked = selectedIds.includes(svc.id_service);
                         const disabled =
                           selectedServices.length > 0 &&

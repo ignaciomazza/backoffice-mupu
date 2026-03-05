@@ -1,10 +1,10 @@
-// src/components/receipts/receipt-form/ReceiptHeader.tsx
+// src/components/groups/collections/receipt-form/GroupReceiptHeader.tsx
 "use client";
 
 import React from "react";
 import { pillBase, pillNeutral, pillOk } from "./primitives";
 
-type Mode = "agency" | "booking";
+type Mode = "agency" | "context";
 type Action = "create" | "attach";
 
 export default function GroupReceiptHeader(props: {
@@ -15,7 +15,7 @@ export default function GroupReceiptHeader(props: {
   action: Action;
   mode: Mode;
 
-  selectedBookingDisplayId: number | null;
+  selectedContextDisplayId: number | null;
   selectedServiceCount: number;
   effectiveCurrency: string;
   lockedCurrency: string | null;
@@ -26,7 +26,7 @@ export default function GroupReceiptHeader(props: {
     editingReceiptId,
     action,
     mode,
-    selectedBookingDisplayId,
+    selectedContextDisplayId,
     selectedServiceCount,
     effectiveCurrency,
     lockedCurrency,
@@ -90,7 +90,7 @@ export default function GroupReceiptHeader(props: {
               {title}
             </p>
             <p className="text-[11px] text-slate-600 dark:text-slate-400 md:text-xs">
-              {mode === "booking" ? "Grupal vinculada" : "Operación de agencia"}
+              {mode === "context" ? "Contexto grupal" : "Operacion de agencia"}
             </p>
           </div>
         </div>
@@ -102,13 +102,13 @@ export default function GroupReceiptHeader(props: {
             {action === "attach" ? "Asociar existente" : "Crear nuevo"}
           </span>
 
-          <span className={`${pillBase} ${mode === "booking" ? pillOk : pillNeutral}`}>
-            {mode === "booking" ? "Con grupal" : "Agencia"}
+          <span className={`${pillBase} ${mode === "context" ? pillOk : pillNeutral}`}>
+            {mode === "context" ? "Con grupal" : "Agencia"}
           </span>
 
-          {mode === "booking" && selectedBookingDisplayId && (
+          {mode === "context" && selectedContextDisplayId && (
             <span className={`${pillBase} ${pillNeutral}`}>
-              Contexto Nº {selectedBookingDisplayId}
+              Contexto Nº {selectedContextDisplayId}
             </span>
           )}
 

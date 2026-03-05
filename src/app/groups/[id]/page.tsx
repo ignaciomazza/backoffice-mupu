@@ -23,7 +23,6 @@ import DestinationPicker, {
 } from "@/components/DestinationPicker";
 import type { Client, ClientCustomField, ClientProfileConfig } from "@/types";
 import type {
-  Booking,
   ClientPayment,
   Invoice,
   Operator,
@@ -63,6 +62,7 @@ import {
   formatDateOnlyInBuenosAires,
   toDateKeyInBuenosAiresLegacySafe,
 } from "@/lib/buenosAiresDate";
+import type { GroupFinanceContext } from "@/components/groups/finance/contextTypes";
 
 type GroupStatus =
   | "BORRADOR"
@@ -125,12 +125,9 @@ type PassengerItem = {
     phone: string;
     email: string | null;
   } | null;
-  booking: {
+  booking?: {
     id_booking: number;
     agency_booking_id: number | null;
-    status: string;
-    clientStatus: string;
-    details: string;
   } | null;
   travelGroupDeparture: {
     id_travel_group_departure: number;
@@ -226,18 +223,15 @@ type InventoryFinancialRow = {
   operationalDebt: number;
 };
 
-type GroupFinanceReservationOption = {
+type GroupFinanceScopeOption = {
   key: string;
   label: string;
-  bookingIds: number[];
-  primaryBookingId: number;
-  primaryAgencyBookingId: number | null;
   passengerCount: number;
   departureId: number | null;
   departureName: string | null;
 };
 
-type FinanceBookingPayload = Booking & {
+type GroupFinanceContextPayload = GroupFinanceContext & {
   Receipt?: Receipt[];
   invoices?: Invoice[];
   services?: Service[];
@@ -337,15 +331,32 @@ function formatDate(value: string | null | undefined) {
 function formatPendingInstallmentAmount(
   value: string | number | null | undefined,
 ): string {
+  const raw = String(value ?? "").trim();
+  const normalized = raw.toUpperCase();
+  const currencySymbol =
+    normalized.includes("USD") ||
+    normalized.includes("US$") ||
+    normalized.includes("U$S") ||
+    normalized.includes("U$D")
+      ? "US$"
+      : normalized.includes("EUR") || normalized.includes("€")
+        ? "€"
+        : normalized.includes("GBP") || normalized.includes("£")
+          ? "£"
+          : "$";
+  const numericOnly = raw.replace(/[^\d,.-]/g, "");
+  const parsedCandidate =
+    numericOnly.includes(".") && numericOnly.includes(",")
+      ? numericOnly.replace(/\./g, "").replace(",", ".")
+      : numericOnly.replace(",", ".");
   const parsed =
-    typeof value === "number"
-      ? value
-      : Number(String(value || "0").replace(",", "."));
+    typeof value === "number" ? value : Number(parsedCandidate || "0");
   const amount = Number.isFinite(parsed) ? parsed : 0;
-  return new Intl.NumberFormat("es-AR", {
+  const formatted = new Intl.NumberFormat("es-AR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount);
+  return `${currencySymbol} ${formatted}`;
 }
 
 function toDateInputValue(value: string | null | undefined): string {
@@ -382,6 +393,13 @@ function toReceiptServiceLite(service: Service): ServiceLite {
     type: service.type,
     destination: service.destination,
   };
+}
+
+function pickFinanceContext(payload: {
+  context?: GroupFinanceContextPayload;
+  booking?: GroupFinanceContextPayload;
+}): GroupFinanceContextPayload | null {
+  return payload.context ?? payload.booking ?? null;
 }
 
 const INVENTORY_META_PREFIX = "[OFI_INV_META]";
@@ -644,55 +662,77 @@ function CollapsiblePanel({
   );
 }
 
-function ToggleIconButton({
+function CollapsibleSectionHeader({
   open,
-  onClick,
-  label,
+  onToggle,
+  title,
+  subtitle,
   disabled = false,
 }: {
   open: boolean;
-  onClick: () => void;
-  label: string;
+  onToggle: () => void;
+  title: string;
+  subtitle: string;
   disabled?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="grid size-9 place-items-center rounded-full border border-sky-500/20 bg-sky-50/60 text-sky-950 shadow-sm shadow-sky-950/10 transition hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-400/30 dark:bg-sky-100/5 dark:text-sky-100 dark:hover:bg-sky-100/20"
-      title={open ? `Ocultar ${label}` : `Mostrar ${label}`}
-      aria-label={open ? `Ocultar ${label}` : `Mostrar ${label}`}
-      aria-expanded={open}
+    <div
+      className={`sticky top-0 z-10 ${
+        open ? "rounded-t-3xl border-b" : ""
+      } border-sky-300/70 bg-white px-5 py-4 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10 md:px-6`}
     >
-      {open ? (
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="size-5"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.6}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14" />
-        </svg>
-      ) : (
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="size-5"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.6}
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M12 4.5v15m7.5-7.5h-15"
-          />
-        </svg>
-      )}
-    </button>
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={disabled}
+        className="flex w-full items-center justify-between text-left disabled:cursor-not-allowed disabled:opacity-60"
+        aria-expanded={open}
+      >
+        <div className="flex items-center gap-3.5">
+          <div className="grid size-9 place-items-center rounded-full border border-sky-300/70 bg-white text-sky-900 shadow-sm shadow-slate-900/10 dark:border-sky-600/40 dark:bg-sky-900/10 dark:text-sky-100">
+            {open ? (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="size-5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.6}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M5 12h14"
+                />
+              </svg>
+            ) : (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="size-5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.6}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 4.5v15m7.5-7.5h-15"
+                />
+              </svg>
+            )}
+          </div>
+          <div>
+            <p className="text-base font-semibold leading-tight text-slate-900 dark:text-slate-100 md:text-lg">
+              {title}
+            </p>
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 md:text-xs">
+              {subtitle}
+            </p>
+          </div>
+        </div>
+      </button>
+    </div>
   );
 }
 
@@ -1080,6 +1120,21 @@ function formatDepartureReference(dep: Departure): string {
   return `Salida Nº${dep.id_travel_group_departure}`;
 }
 
+function sortDeparturesByDate(rows: Departure[]): Departure[] {
+  return [...rows].sort((a, b) => {
+    const aDateKey =
+      toDateKeyInBuenosAiresLegacySafe(a.departure_date ?? null) ?? "";
+    const bDateKey =
+      toDateKeyInBuenosAiresLegacySafe(b.departure_date ?? null) ?? "";
+    if (aDateKey && bDateKey && aDateKey !== bDateKey) {
+      return aDateKey.localeCompare(bDateKey);
+    }
+    if (aDateKey && !bDateKey) return -1;
+    if (!aDateKey && bDateKey) return 1;
+    return a.id_travel_group_departure - b.id_travel_group_departure;
+  });
+}
+
 function parseOptionalPositiveInteger(raw: string): number | null {
   const normalized = raw.trim();
   if (!normalized) return null;
@@ -1266,8 +1321,12 @@ export default function GroupDetailPage() {
   >([]);
 
   const [showDepartureCreate, setShowDepartureCreate] = useState(false);
+  const [showDeparturePanel, setShowDeparturePanel] = useState(false);
   const [createDepartureDraft, setCreateDepartureDraft] =
     useState<DepartureDraft>(() => defaultDepartureDraft());
+  const [activeDepartureId, setActiveDepartureId] = useState<number | null>(
+    null,
+  );
   const [editingDepartureId, setEditingDepartureId] = useState<number | null>(
     null,
   );
@@ -1285,7 +1344,11 @@ export default function GroupDetailPage() {
     "ALL" | string
   >("ALL");
   const [showPassengerFilters, setShowPassengerFilters] = useState(false);
+  const [showPrimaryDeparturePanel, setShowPrimaryDeparturePanel] =
+    useState(false);
   const [showPassengerForm, setShowPassengerForm] = useState(false);
+  const [showPassengerInternalNote, setShowPassengerInternalNote] =
+    useState(false);
   const [passengerFormMode, setPassengerFormMode] = useState<
     "ALTA" | "EDICION"
   >("ALTA");
@@ -1296,7 +1359,6 @@ export default function GroupDetailPage() {
   const [newPassengerClientId, setNewPassengerClientId] = useState<
     number | null
   >(null);
-  const [newPassengerDepartureId, setNewPassengerDepartureId] = useState("");
   const [newClientDraft, setNewClientDraft] = useState<ClientEditableDraft>(
     () => defaultClientDraft(),
   );
@@ -1326,6 +1388,8 @@ export default function GroupDetailPage() {
   );
   const [defaultTransferFeePct, setDefaultTransferFeePct] = useState(2.4);
   const [showInventoryForm, setShowInventoryForm] = useState(false);
+  const [showInventoryInternalNote, setShowInventoryInternalNote] =
+    useState(false);
   const [editingInventoryId, setEditingInventoryId] = useState<number | null>(
     null,
   );
@@ -1334,8 +1398,8 @@ export default function GroupDetailPage() {
   );
   const [sectionFilter, setSectionFilter] =
     useState<SectionFilterKey>("GRUPAL");
-  const [collectBooking, setCollectBooking] =
-    useState<FinanceBookingPayload | null>(null);
+  const [collectContext, setCollectContext] =
+    useState<GroupFinanceContextPayload | null>(null);
   const [collectClientPayments, setCollectClientPayments] = useState<
     ClientPayment[]
   >([]);
@@ -1349,8 +1413,8 @@ export default function GroupDetailPage() {
   const [editingCollectReceipt, setEditingCollectReceipt] =
     useState<Receipt | null>(null);
 
-  const [financeBooking, setFinanceBooking] =
-    useState<FinanceBookingPayload | null>(null);
+  const [financeContext, setFinanceContext] =
+    useState<GroupFinanceContextPayload | null>(null);
   const [financeInvoices, setFinanceInvoices] = useState<Invoice[]>([]);
   const [financeCreditNotes, setFinanceCreditNotes] = useState<
     CreditNoteWithItems[]
@@ -1370,9 +1434,8 @@ export default function GroupDetailPage() {
     setFinanceOperatorPaymentsReloadKey,
   ] = useState(0);
 
-  const [paymentsReservationKey, setPaymentsReservationKey] = useState("");
-  const [paymentsBooking, setPaymentsBooking] =
-    useState<FinanceBookingPayload | null>(null);
+  const [paymentsContext, setPaymentsContext] =
+    useState<GroupFinanceContextPayload | null>(null);
   const [paymentsOperatorDues, setPaymentsOperatorDues] = useState<
     OperatorDue[]
   >([]);
@@ -1380,254 +1443,281 @@ export default function GroupDetailPage() {
   const [paymentsLoadingError, setPaymentsLoadingError] = useState<
     string | null
   >(null);
+  const activeDepartureRef = useRef<number | null>(null);
+  const lastScopedDepartureRef = useRef<number | null>(null);
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const groupData = await requestGroupApi<Group>(
-        `/api/groups/${encodeURIComponent(groupId)}`,
-        {
-          credentials: "include",
-          cache: "no-store",
-        },
-        "No pudimos cargar la grupal.",
-      );
-      const passengersData = await requestGroupApi<{ items?: PassengerItem[] }>(
-        `/api/groups/${encodeURIComponent(groupId)}/passengers`,
-        {
-          credentials: "include",
-          cache: "no-store",
-        },
-        "No pudimos cargar los pasajeros.",
-      );
-      const inventoriesData = await requestGroupApi<{
-        items?: GroupInventoryItem[];
-      }>(
-        `/api/groups/${encodeURIComponent(groupId)}/inventories`,
-        {
-          credentials: "include",
-          cache: "no-store",
-        },
-        "No pudimos cargar los servicios de la grupal.",
-      );
-      const clientConfigData = await requestGroupApi<ClientConfigPayload>(
-        "/api/clients/config",
-        {
-          credentials: "include",
-          cache: "no-store",
-        },
-        "No pudimos cargar la configuración de pasajeros.",
-      ).catch(() => null);
-      const categoriesData = await requestGroupApi<PassengerCategoryOption[]>(
-        "/api/passenger-categories?enabled=true",
-        {
-          credentials: "include",
-          cache: "no-store",
-        },
-        "No pudimos cargar las categorías de pasajeros.",
-      ).catch(() => []);
-
-      setGroup(groupData);
-      setPassengers(
-        Array.isArray(passengersData.items) ? passengersData.items : [],
-      );
-      setInventories(
-        Array.isArray(inventoriesData.items) ? inventoriesData.items : [],
-      );
-
-      const normalizedProfiles = normalizeClientProfiles(
-        clientConfigData?.profiles,
-        {
-          required_fields: clientConfigData?.required_fields,
-          hidden_fields: clientConfigData?.hidden_fields,
-          custom_fields: clientConfigData?.custom_fields,
-        },
-      );
-      const normalizedCategories = Array.isArray(categoriesData)
-        ? categoriesData.filter(
-            (item) =>
-              Number.isFinite(Number(item.id_category)) &&
-              Number(item.id_category) > 0,
-          )
-        : [];
-
-      setClientProfiles(normalizedProfiles);
-      setNewClientDraft((prev) =>
-        prev
-          ? {
-              ...prev,
-              profile_key: resolveClientProfile(
-                normalizedProfiles,
-                prev.profile_key,
-              ).key,
-            }
-          : prev,
-      );
-      setActiveClientDraft((prev) =>
-        prev
-          ? {
-              ...prev,
-              profile_key: resolveClientProfile(
-                normalizedProfiles,
-                prev.profile_key,
-              ).key,
-            }
-          : prev,
-      );
-      setPassengerCategories(normalizedCategories);
-
+  const fetchAll = useCallback(
+    async (requestedDepartureId?: number | null) => {
+      setLoading(true);
+      setError(null);
       try {
-        const serviceTypesData = await requestGroupApi<ServiceTypeOption[]>(
-          "/api/service-types?enabled=true",
+        const groupData = await requestGroupApi<Group>(
+          `/api/groups/${encodeURIComponent(groupId)}`,
           {
             credentials: "include",
             cache: "no-store",
           },
-          "No pudimos cargar los tipos de servicio.",
-        ).catch(() => []);
-        const operatorsData = await requestGroupApi<OperatorOption[]>(
-          "/api/operators",
-          {
-            credentials: "include",
-            cache: "no-store",
-          },
-          "No pudimos cargar los operadores.",
-        ).catch(() => []);
-        const financePicksData = await requestGroupApi<{
-          currencies?: FinanceCurrencyOption[];
-        }>(
-          "/api/finance/picks",
-          {
-            credentials: "include",
-            cache: "no-store",
-          },
-          "No pudimos cargar las monedas de finanzas.",
-        ).catch(() => ({ currencies: [] }));
-        const calcConfigData = await requestGroupApi<ServiceCalcConfigPayload>(
-          "/api/service-calc-config",
-          {
-            credentials: "include",
-            cache: "no-store",
-          },
-          "No pudimos cargar la configuración de costos de transferencia.",
-        ).catch((): ServiceCalcConfigPayload => ({ transfer_fee_pct: 2.4 }));
-
-        const validServiceTypes = Array.isArray(serviceTypesData)
-          ? serviceTypesData.filter(
-              (item) =>
-                typeof item.name === "string" &&
-                item.name.trim().length > 0 &&
-                item.enabled !== false,
-            )
-          : [];
-        const validOperators = Array.isArray(operatorsData)
-          ? operatorsData.filter(
-              (item) =>
-                Number.isFinite(Number(item.id_operator)) &&
-                Number(item.id_operator) > 0 &&
-                typeof item.name === "string" &&
-                item.name.trim().length > 0,
-            )
-          : [];
-        const validCurrencies = Array.isArray(financePicksData?.currencies)
-          ? financePicksData.currencies.filter(
-              (item) =>
-                typeof item.code === "string" &&
-                item.code.trim().length > 0 &&
-                item.enabled !== false,
-            )
-          : [];
-
-        const parsedTransferFeePct = Number(
-          String(calcConfigData?.transfer_fee_pct ?? "2.4").replace(",", "."),
+          "No pudimos cargar la grupal.",
         );
-        const transferFeePct = Number.isFinite(parsedTransferFeePct)
-          ? parsedTransferFeePct
-          : 2.4;
+        const orderedDepartures = sortDeparturesByDate(
+          Array.isArray(groupData.departures) ? groupData.departures : [],
+        );
+        const baselineDepartureId =
+          requestedDepartureId ?? activeDepartureRef.current;
+        const activeDepartureExists =
+          baselineDepartureId != null &&
+          orderedDepartures.some(
+            (item) => item.id_travel_group_departure === baselineDepartureId,
+          );
+        const scopedDepartureId =
+          activeDepartureExists && baselineDepartureId != null
+            ? baselineDepartureId
+            : (orderedDepartures[0]?.id_travel_group_departure ?? null);
+        if (activeDepartureRef.current !== scopedDepartureId) {
+          activeDepartureRef.current = scopedDepartureId;
+          setActiveDepartureId((prev) =>
+            prev === scopedDepartureId ? prev : scopedDepartureId,
+          );
+        }
+        const departureQuery = scopedDepartureId
+          ? `?departureId=${encodeURIComponent(String(scopedDepartureId))}`
+          : "";
 
-        setServiceTypes(validServiceTypes);
-        setOperatorOptions(validOperators);
-        setFinanceCurrencies(validCurrencies);
-        setDefaultTransferFeePct(transferFeePct);
-        setServiceOptionsError(null);
+        const passengersData = await requestGroupApi<{
+          items?: PassengerItem[];
+        }>(
+          `/api/groups/${encodeURIComponent(groupId)}/passengers${departureQuery}`,
+          {
+            credentials: "include",
+            cache: "no-store",
+          },
+          "No pudimos cargar los pasajeros.",
+        );
+        const inventoriesData = await requestGroupApi<{
+          items?: GroupInventoryItem[];
+        }>(
+          `/api/groups/${encodeURIComponent(groupId)}/inventories${departureQuery}`,
+          {
+            credentials: "include",
+            cache: "no-store",
+          },
+          "No pudimos cargar los servicios de la grupal.",
+        );
+        const clientConfigData = await requestGroupApi<ClientConfigPayload>(
+          "/api/clients/config",
+          {
+            credentials: "include",
+            cache: "no-store",
+          },
+          "No pudimos cargar la configuración de pasajeros.",
+        ).catch(() => null);
+        const categoriesData = await requestGroupApi<PassengerCategoryOption[]>(
+          "/api/passenger-categories?enabled=true",
+          {
+            credentials: "include",
+            cache: "no-store",
+          },
+          "No pudimos cargar las categorías de pasajeros.",
+        ).catch(() => []);
 
-        setInventoryDraft((prev) => {
-          const next = { ...prev };
-          if (
-            !next.transfer_fee_pct.trim() ||
-            Number.isNaN(Number(next.transfer_fee_pct.replace(",", ".")))
-          ) {
-            next.transfer_fee_pct = String(transferFeePct);
-          }
-          if (!next.currency.trim() && validCurrencies.length > 0) {
-            next.currency = String(validCurrencies[0].code || "ARS")
-              .trim()
-              .toUpperCase();
-          }
-          return next;
-        });
-      } catch (serviceOptionsErrorRaw) {
-        const serviceOptionsMessage =
-          serviceOptionsErrorRaw instanceof Error
-            ? serviceOptionsErrorRaw.message
-            : "No pudimos cargar configuración de servicios.";
+        setGroup(groupData);
+        setPassengers(
+          Array.isArray(passengersData.items) ? passengersData.items : [],
+        );
+        setInventories(
+          Array.isArray(inventoriesData.items) ? inventoriesData.items : [],
+        );
+
+        const normalizedProfiles = normalizeClientProfiles(
+          clientConfigData?.profiles,
+          {
+            required_fields: clientConfigData?.required_fields,
+            hidden_fields: clientConfigData?.hidden_fields,
+            custom_fields: clientConfigData?.custom_fields,
+          },
+        );
+        const normalizedCategories = Array.isArray(categoriesData)
+          ? categoriesData.filter(
+              (item) =>
+                Number.isFinite(Number(item.id_category)) &&
+                Number(item.id_category) > 0,
+            )
+          : [];
+
+        setClientProfiles(normalizedProfiles);
+        setNewClientDraft((prev) =>
+          prev
+            ? {
+                ...prev,
+                profile_key: resolveClientProfile(
+                  normalizedProfiles,
+                  prev.profile_key,
+                ).key,
+              }
+            : prev,
+        );
+        setActiveClientDraft((prev) =>
+          prev
+            ? {
+                ...prev,
+                profile_key: resolveClientProfile(
+                  normalizedProfiles,
+                  prev.profile_key,
+                ).key,
+              }
+            : prev,
+        );
+        setPassengerCategories(normalizedCategories);
+
+        try {
+          const serviceTypesData = await requestGroupApi<ServiceTypeOption[]>(
+            "/api/service-types?enabled=true",
+            {
+              credentials: "include",
+              cache: "no-store",
+            },
+            "No pudimos cargar los tipos de servicio.",
+          ).catch(() => []);
+          const operatorsData = await requestGroupApi<OperatorOption[]>(
+            "/api/operators",
+            {
+              credentials: "include",
+              cache: "no-store",
+            },
+            "No pudimos cargar los operadores.",
+          ).catch(() => []);
+          const financePicksData = await requestGroupApi<{
+            currencies?: FinanceCurrencyOption[];
+          }>(
+            "/api/finance/picks",
+            {
+              credentials: "include",
+              cache: "no-store",
+            },
+            "No pudimos cargar las monedas de finanzas.",
+          ).catch(() => ({ currencies: [] }));
+          const calcConfigData =
+            await requestGroupApi<ServiceCalcConfigPayload>(
+              "/api/service-calc-config",
+              {
+                credentials: "include",
+                cache: "no-store",
+              },
+              "No pudimos cargar la configuración de costos de transferencia.",
+            ).catch(
+              (): ServiceCalcConfigPayload => ({ transfer_fee_pct: 2.4 }),
+            );
+
+          const validServiceTypes = Array.isArray(serviceTypesData)
+            ? serviceTypesData.filter(
+                (item) =>
+                  typeof item.name === "string" &&
+                  item.name.trim().length > 0 &&
+                  item.enabled !== false,
+              )
+            : [];
+          const validOperators = Array.isArray(operatorsData)
+            ? operatorsData.filter(
+                (item) =>
+                  Number.isFinite(Number(item.id_operator)) &&
+                  Number(item.id_operator) > 0 &&
+                  typeof item.name === "string" &&
+                  item.name.trim().length > 0,
+              )
+            : [];
+          const validCurrencies = Array.isArray(financePicksData?.currencies)
+            ? financePicksData.currencies.filter(
+                (item) =>
+                  typeof item.code === "string" &&
+                  item.code.trim().length > 0 &&
+                  item.enabled !== false,
+              )
+            : [];
+
+          const parsedTransferFeePct = Number(
+            String(calcConfigData?.transfer_fee_pct ?? "2.4").replace(",", "."),
+          );
+          const transferFeePct = Number.isFinite(parsedTransferFeePct)
+            ? parsedTransferFeePct
+            : 2.4;
+
+          setServiceTypes(validServiceTypes);
+          setOperatorOptions(validOperators);
+          setFinanceCurrencies(validCurrencies);
+          setDefaultTransferFeePct(transferFeePct);
+          setServiceOptionsError(null);
+
+          setInventoryDraft((prev) => {
+            const next = { ...prev };
+            if (
+              !next.transfer_fee_pct.trim() ||
+              Number.isNaN(Number(next.transfer_fee_pct.replace(",", ".")))
+            ) {
+              next.transfer_fee_pct = String(transferFeePct);
+            }
+            if (!next.currency.trim() && validCurrencies.length > 0) {
+              next.currency = String(validCurrencies[0].code || "ARS")
+                .trim()
+                .toUpperCase();
+            }
+            return next;
+          });
+        } catch (serviceOptionsErrorRaw) {
+          const serviceOptionsMessage =
+            serviceOptionsErrorRaw instanceof Error
+              ? serviceOptionsErrorRaw.message
+              : "No pudimos cargar configuración de servicios.";
+          setServiceTypes([]);
+          setOperatorOptions([]);
+          setFinanceCurrencies([]);
+          setDefaultTransferFeePct(2.4);
+          setServiceOptionsError(
+            toFriendlyServiceOptionsError(serviceOptionsMessage),
+          );
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "No pudimos cargar la pantalla de esta grupal.";
+        setError(message);
+        toast.error(message);
+        setGroup(null);
+        setPassengers([]);
+        setInventories([]);
         setServiceTypes([]);
         setOperatorOptions([]);
         setFinanceCurrencies([]);
+        setServiceOptionsError(null);
         setDefaultTransferFeePct(2.4);
-        setServiceOptionsError(
-          toFriendlyServiceOptionsError(serviceOptionsMessage),
-        );
+        setClientProfiles([
+          {
+            key: DEFAULT_CLIENT_PROFILE_KEY,
+            label: DEFAULT_CLIENT_PROFILE_LABEL,
+            required_fields: DEFAULT_REQUIRED_FIELDS,
+            hidden_fields: [],
+            custom_fields: [],
+          },
+        ]);
+        setPassengerCategories([]);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "No pudimos cargar la pantalla de esta grupal.";
-      setError(message);
-      toast.error(message);
-      setGroup(null);
-      setPassengers([]);
-      setInventories([]);
-      setServiceTypes([]);
-      setOperatorOptions([]);
-      setFinanceCurrencies([]);
-      setServiceOptionsError(null);
-      setDefaultTransferFeePct(2.4);
-      setClientProfiles([
-        {
-          key: DEFAULT_CLIENT_PROFILE_KEY,
-          label: DEFAULT_CLIENT_PROFILE_LABEL,
-          required_fields: DEFAULT_REQUIRED_FIELDS,
-          hidden_fields: [],
-          custom_fields: [],
-        },
-      ]);
-      setPassengerCategories([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [groupId]);
+    },
+    [groupId],
+  );
 
   useEffect(() => {
     void fetchAll();
   }, [fetchAll]);
 
+  useEffect(() => {
+    activeDepartureRef.current = activeDepartureId;
+  }, [activeDepartureId]);
+
   const sortedDepartures = useMemo(() => {
     if (!group?.departures) return [];
-    return [...group.departures].sort((a, b) => {
-      const aDateKey =
-        toDateKeyInBuenosAiresLegacySafe(a.departure_date ?? null) ?? "";
-      const bDateKey =
-        toDateKeyInBuenosAiresLegacySafe(b.departure_date ?? null) ?? "";
-      if (aDateKey && bDateKey && aDateKey !== bDateKey) {
-        return aDateKey.localeCompare(bDateKey);
-      }
-      if (aDateKey && !bDateKey) return -1;
-      if (!aDateKey && bDateKey) return 1;
-      return a.id_travel_group_departure - b.id_travel_group_departure;
-    });
+    return sortDeparturesByDate(group.departures);
   }, [group?.departures]);
 
   const isSingleDepartureMode = useMemo(() => {
@@ -1650,11 +1740,6 @@ export default function GroupDetailPage() {
 
   const selectedCollectPassenger = activePassenger;
 
-  const selectedCollectBookingId = useMemo(() => {
-    const bookingId = Number(selectedCollectPassenger?.booking_id || 0);
-    return Number.isFinite(bookingId) && bookingId > 0 ? bookingId : null;
-  }, [selectedCollectPassenger?.booking_id]);
-
   const selectedCollectClientId = useMemo(() => {
     const clientId = Number(selectedCollectPassenger?.client_id || 0);
     return Number.isFinite(clientId) && clientId > 0 ? clientId : null;
@@ -1662,118 +1747,67 @@ export default function GroupDetailPage() {
 
   const selectedFinancePassenger = activePassenger;
 
-  const financeReservationOptions = useMemo<
-    GroupFinanceReservationOption[]
-  >(() => {
-    const byScope = new Map<
-      string,
-      {
-        departureId: number | null;
-        departureName: string | null;
-        bookingIds: Set<number>;
-        bookingAgencyById: Map<number, number | null>;
-        passengerCount: number;
-      }
-    >();
+  const activeDeparture = useMemo(() => {
+    if (activeDepartureId == null) return null;
+    return (
+      sortedDepartures.find(
+        (item) => item.id_travel_group_departure === activeDepartureId,
+      ) ?? null
+    );
+  }, [activeDepartureId, sortedDepartures]);
 
-    for (const passenger of passengers) {
-      const bookingId = Number(passenger.booking_id || 0);
-      if (!Number.isFinite(bookingId) || bookingId <= 0) continue;
-
+  const selectedFinanceScope = useMemo<GroupFinanceScopeOption | null>(() => {
+    if (sortedDepartures.length > 0) {
       const departureId =
-        passenger.travelGroupDeparture?.id_travel_group_departure != null
-          ? Number(passenger.travelGroupDeparture.id_travel_group_departure)
-          : null;
-      const scopeKey =
-        departureId == null ? "group" : `departure:${departureId}`;
-      const current = byScope.get(scopeKey) ?? {
+        activeDepartureId ?? sortedDepartures[0]?.id_travel_group_departure;
+      if (departureId == null) return null;
+      const departureName =
+        activeDeparture?.name ||
+        sortedDepartures.find(
+          (item) => item.id_travel_group_departure === departureId,
+        )?.name ||
+        null;
+      return {
+        key: `departure:${departureId}`,
+        label: `Salida: ${departureName || `#${departureId}`}`,
+        passengerCount: passengers.length,
         departureId,
-        departureName: passenger.travelGroupDeparture?.name || null,
-        bookingIds: new Set<number>(),
-        bookingAgencyById: new Map<number, number | null>(),
-        passengerCount: 0,
+        departureName,
       };
+    }
 
-      current.passengerCount += 1;
-      current.bookingIds.add(bookingId);
-      current.bookingAgencyById.set(
-        bookingId,
-        passenger.booking?.agency_booking_id != null
-          ? Number(passenger.booking.agency_booking_id)
-          : null,
-      );
-      if (!current.departureName && passenger.travelGroupDeparture?.name) {
-        current.departureName = passenger.travelGroupDeparture.name;
+    return {
+      key: "group",
+      label: "Grupal general",
+      passengerCount: passengers.length,
+      departureId: null,
+      departureName: null,
+    };
+  }, [
+    activeDeparture?.name,
+    activeDepartureId,
+    passengers.length,
+    sortedDepartures,
+  ]);
+
+  const selectedPaymentsScope = selectedFinanceScope;
+
+  useEffect(() => {
+    if (sortedDepartures.length === 0) {
+      if (activeDepartureId != null) {
+        setActiveDepartureId(null);
+        void fetchAll(null);
       }
-
-      byScope.set(scopeKey, current);
+      return;
     }
-
-    const rows: GroupFinanceReservationOption[] = [];
-    for (const [key, value] of byScope.entries()) {
-      const bookingIds = Array.from(value.bookingIds).sort((a, b) => a - b);
-      if (bookingIds.length === 0) continue;
-      const primaryBookingId = bookingIds[0];
-      const primaryAgencyBookingId =
-        value.bookingAgencyById.get(primaryBookingId) ?? null;
-
-      const baseLabel =
-        value.departureId == null
-          ? "Grupal general (sin salida)"
-          : `Salida: ${value.departureName || `#${value.departureId}`}`;
-
-      rows.push({
-        key,
-        label: baseLabel,
-        bookingIds,
-        primaryBookingId,
-        primaryAgencyBookingId,
-        passengerCount: value.passengerCount,
-        departureId: value.departureId,
-        departureName: value.departureName,
-      });
-    }
-
-    return rows.sort((a, b) => {
-      if (a.departureId == null && b.departureId != null) return -1;
-      if (a.departureId != null && b.departureId == null) return 1;
-      if (
-        a.departureId != null &&
-        b.departureId != null &&
-        a.departureId !== b.departureId
-      ) {
-        return a.departureId - b.departureId;
-      }
-      return a.primaryBookingId - b.primaryBookingId;
-    });
-  }, [passengers]);
-
-  const activeFinanceScopeKey = useMemo(() => {
-    if (
-      selectedFinancePassenger?.travelGroupDeparture
-        ?.id_travel_group_departure != null
-    ) {
-      return `departure:${selectedFinancePassenger.travelGroupDeparture.id_travel_group_departure}`;
-    }
-    return "group";
-  }, [selectedFinancePassenger]);
-
-  const selectedFinanceReservation = useMemo(() => {
-    return (
-      financeReservationOptions.find(
-        (item) => item.key === activeFinanceScopeKey,
-      ) ?? null
+    const hasActive = sortedDepartures.some(
+      (item) => item.id_travel_group_departure === activeDepartureId,
     );
-  }, [activeFinanceScopeKey, financeReservationOptions]);
-
-  const selectedPaymentsReservation = useMemo(() => {
-    if (!paymentsReservationKey) return null;
-    return (
-      financeReservationOptions.find(
-        (item) => item.key === paymentsReservationKey,
-      ) ?? null
-    );
-  }, [financeReservationOptions, paymentsReservationKey]);
+    if (hasActive) return;
+    const fallbackDepartureId = sortedDepartures[0].id_travel_group_departure;
+    setActiveDepartureId(fallbackDepartureId);
+    void fetchAll(fallbackDepartureId);
+  }, [activeDepartureId, fetchAll, sortedDepartures]);
 
   useEffect(() => {
     if (passengers.length === 0) {
@@ -1791,29 +1825,37 @@ export default function GroupDetailPage() {
   }, [activePassengerId, passengers]);
 
   useEffect(() => {
-    if (financeReservationOptions.length === 0) {
-      setPaymentsReservationKey("");
-      return;
-    }
-    const preferredKey =
-      activePassenger?.travelGroupDeparture?.id_travel_group_departure != null
-        ? `departure:${activePassenger.travelGroupDeparture.id_travel_group_departure}`
-        : "group";
-    const hasPreferred = financeReservationOptions.some(
-      (item) => item.key === preferredKey,
+    const previousDepartureId = lastScopedDepartureRef.current;
+    if (previousDepartureId === activeDepartureId) return;
+    lastScopedDepartureRef.current = activeDepartureId;
+
+    if (previousDepartureId == null) return;
+
+    setEditingCollectReceipt(null);
+    setCollectReceiptFormVisible(false);
+    setFinanceInvoiceFormVisible(false);
+    setFinanceInvoiceFormData(createEmptyInvoiceFormData());
+    setShowPassengerInternalNote(false);
+    setShowPassengerFilters(false);
+    setShowInventoryInternalNote(false);
+    setEditingInventoryId(null);
+    setShowInventoryForm(false);
+    setShowDepartureCreate(false);
+    setInventoryDraft(
+      defaultInventoryDraft(undefined, {
+        defaultTransferFeePct,
+        operators: operatorOptions,
+      }),
     );
-    const nextKey = hasPreferred
-      ? preferredKey
-      : financeReservationOptions[0].key;
-    if (paymentsReservationKey !== nextKey) {
-      setPaymentsReservationKey(nextKey);
-    }
-  }, [activePassenger, financeReservationOptions, paymentsReservationKey]);
+  }, [activeDepartureId, defaultTransferFeePct, operatorOptions]);
 
   useEffect(() => {
     setEditingCollectReceipt(null);
     setCollectReceiptFormVisible(false);
-  }, [selectedCollectBookingId, selectedCollectClientId]);
+  }, [
+    selectedCollectPassenger?.id_travel_group_passenger,
+    selectedCollectClientId,
+  ]);
 
   useEffect(() => {
     if (sectionFilter !== "COBROS") return;
@@ -1826,6 +1868,7 @@ export default function GroupDetailPage() {
       setActivePassengerStatus("");
       setActivePassengerDepartureId("");
       setActivePassengerNote("");
+      setShowPassengerInternalNote(false);
       return;
     }
     setActivePassengerStatus(activePassenger.status || "");
@@ -1835,6 +1878,7 @@ export default function GroupDetailPage() {
         : "",
     );
     setActivePassengerNote(parsePassengerNote(activePassenger.metadata));
+    setShowPassengerInternalNote(false);
   }, [activePassenger]);
 
   useEffect(() => {
@@ -1842,6 +1886,23 @@ export default function GroupDetailPage() {
       setPassengerFormMode("ALTA");
     }
   }, [activePassenger, passengerFormMode]);
+
+  useEffect(() => {
+    if (isSingleDepartureMode || editingInventoryId) return;
+    const scopedDepartureValue =
+      activeDeparture?.public_id ||
+      (activeDepartureId != null ? String(activeDepartureId) : "");
+    setInventoryDraft((prev) =>
+      prev.departure_id === scopedDepartureValue
+        ? prev
+        : { ...prev, departure_id: scopedDepartureValue },
+    );
+  }, [
+    activeDeparture?.public_id,
+    activeDepartureId,
+    editingInventoryId,
+    isSingleDepartureMode,
+  ]);
 
   const serviceTypeOptions = useMemo(() => {
     return [...serviceTypes].sort((a, b) => a.name.localeCompare(b.name, "es"));
@@ -1999,7 +2060,7 @@ export default function GroupDetailPage() {
           .toLowerCase();
       const departureName =
         item.travelGroupDeparture?.name?.toLowerCase() || "";
-      const bookingRef = String(
+      const contextRef = String(
         item.booking?.agency_booking_id ?? item.booking?.id_booking ?? "",
       );
       const clientRef = String(
@@ -2008,7 +2069,7 @@ export default function GroupDetailPage() {
       return (
         fullName.includes(q) ||
         departureName.includes(q) ||
-        bookingRef.includes(q) ||
+        contextRef.includes(q) ||
         clientRef.includes(q)
       );
     });
@@ -2184,20 +2245,9 @@ export default function GroupDetailPage() {
   }, [activePassengerClientId]);
 
   const fetchCollectFinanceData = useCallback(
-    async (
-      bookingId: number | null,
-      clientId: number | null,
-      passengerId: number | null,
-    ) => {
-      if (
-        !bookingId ||
-        bookingId <= 0 ||
-        !clientId ||
-        clientId <= 0 ||
-        !passengerId ||
-        passengerId <= 0
-      ) {
-        setCollectBooking(null);
+    async (clientId: number | null, passengerId: number | null) => {
+      if (!clientId || clientId <= 0 || !passengerId || passengerId <= 0) {
+        setCollectContext(null);
         setCollectReceipts([]);
         setCollectClientPayments([]);
         setCollectLoading(false);
@@ -2210,19 +2260,20 @@ export default function GroupDetailPage() {
 
       const errors: string[] = [];
       try {
-        const bookingData = await requestGroupApi<{
-          booking?: FinanceBookingPayload;
+        const contextData = await requestGroupApi<{
+          context?: GroupFinanceContextPayload;
+          booking?: GroupFinanceContextPayload;
         }>(
-          `/api/groups/${encodeURIComponent(groupId)}/finance/context?bookingId=${bookingId}&passengerId=${passengerId}`,
+          `/api/groups/${encodeURIComponent(groupId)}/finance/context?passengerId=${passengerId}`,
           {
             credentials: "include",
             cache: "no-store",
           },
           "No pudimos cargar el contexto financiero del pasajero.",
         );
-        setCollectBooking(bookingData.booking ?? null);
+        setCollectContext(pickFinanceContext(contextData));
       } catch (error) {
-        setCollectBooking(null);
+        setCollectContext(null);
         errors.push(
           error instanceof Error
             ? error.message
@@ -2249,11 +2300,11 @@ export default function GroupDetailPage() {
                 .filter((id) => Number.isFinite(id) && id > 0)
             : [];
           if (ids.length === 0) {
-            const bookingTitularId = Number(
+            const contextTitularId = Number(
               receipt.booking?.titular?.id_client || 0,
             );
-            if (Number.isFinite(bookingTitularId) && bookingTitularId > 0) {
-              return bookingTitularId === clientId;
+            if (Number.isFinite(contextTitularId) && contextTitularId > 0) {
+              return contextTitularId === clientId;
             }
             return true;
           }
@@ -2300,13 +2351,11 @@ export default function GroupDetailPage() {
 
   const refreshCollectData = useCallback(async () => {
     await fetchCollectFinanceData(
-      selectedCollectBookingId,
       selectedCollectClientId,
       selectedCollectPassenger?.id_travel_group_passenger ?? null,
     );
   }, [
     fetchCollectFinanceData,
-    selectedCollectBookingId,
     selectedCollectClientId,
     selectedCollectPassenger?.id_travel_group_passenger,
   ]);
@@ -2314,22 +2363,20 @@ export default function GroupDetailPage() {
   useEffect(() => {
     if (sectionFilter !== "COBROS") return;
     void fetchCollectFinanceData(
-      selectedCollectBookingId,
       selectedCollectClientId,
       selectedCollectPassenger?.id_travel_group_passenger ?? null,
     );
   }, [
     sectionFilter,
     fetchCollectFinanceData,
-    selectedCollectBookingId,
     selectedCollectClientId,
     selectedCollectPassenger?.id_travel_group_passenger,
   ]);
 
-  const fetchPaymentsDataByReservation = useCallback(
-    async (reservation: GroupFinanceReservationOption | null) => {
-      if (!reservation || reservation.bookingIds.length === 0) {
-        setPaymentsBooking(null);
+  const fetchPaymentsDataByScope = useCallback(
+    async (scopeOption: GroupFinanceScopeOption | null) => {
+      if (!scopeOption) {
+        setPaymentsContext(null);
         setPaymentsOperatorDues([]);
         setPaymentsLoading(false);
         setPaymentsLoadingError(null);
@@ -2340,11 +2387,12 @@ export default function GroupDetailPage() {
       setPaymentsLoadingError(null);
 
       const errors: string[] = [];
-      const scopeParam = encodeURIComponent(reservation.key);
+      const scopeParam = encodeURIComponent(scopeOption.key);
 
       try {
-        const bookingResult = await requestGroupApi<{
-          booking?: FinanceBookingPayload;
+        const contextResult = await requestGroupApi<{
+          context?: GroupFinanceContextPayload;
+          booking?: GroupFinanceContextPayload;
         }>(
           `/api/groups/${encodeURIComponent(groupId)}/finance/context?scope=${scopeParam}`,
           {
@@ -2353,9 +2401,9 @@ export default function GroupDetailPage() {
           },
           "No pudimos cargar el contexto operativo principal.",
         );
-        setPaymentsBooking(bookingResult.booking ?? null);
+        setPaymentsContext(pickFinanceContext(contextResult));
       } catch (error) {
-        setPaymentsBooking(null);
+        setPaymentsContext(null);
         errors.push(
           error instanceof Error
             ? error.message
@@ -2393,22 +2441,18 @@ export default function GroupDetailPage() {
   );
 
   const refreshPaymentsData = useCallback(async () => {
-    await fetchPaymentsDataByReservation(selectedPaymentsReservation);
-  }, [fetchPaymentsDataByReservation, selectedPaymentsReservation]);
+    await fetchPaymentsDataByScope(selectedPaymentsScope);
+  }, [fetchPaymentsDataByScope, selectedPaymentsScope]);
 
   useEffect(() => {
     if (sectionFilter !== "PAGOS") return;
-    void fetchPaymentsDataByReservation(selectedPaymentsReservation);
-  }, [
-    sectionFilter,
-    fetchPaymentsDataByReservation,
-    selectedPaymentsReservation,
-  ]);
+    void fetchPaymentsDataByScope(selectedPaymentsScope);
+  }, [sectionFilter, fetchPaymentsDataByScope, selectedPaymentsScope]);
 
-  const fetchFinanceDataByReservation = useCallback(
-    async (reservation: GroupFinanceReservationOption | null) => {
-      if (!reservation || reservation.bookingIds.length === 0) {
-        setFinanceBooking(null);
+  const fetchFinanceDataByScope = useCallback(
+    async (scopeOption: GroupFinanceScopeOption | null) => {
+      if (!scopeOption) {
+        setFinanceContext(null);
         setFinanceInvoices([]);
         setFinanceCreditNotes([]);
         setFinanceLoading(false);
@@ -2422,19 +2466,20 @@ export default function GroupDetailPage() {
       const errors: string[] = [];
 
       try {
-        const bookingResult = await requestGroupApi<{
-          booking?: FinanceBookingPayload;
+        const contextResult = await requestGroupApi<{
+          context?: GroupFinanceContextPayload;
+          booking?: GroupFinanceContextPayload;
         }>(
-          `/api/groups/${encodeURIComponent(groupId)}/finance/context?scope=${encodeURIComponent(reservation.key)}`,
+          `/api/groups/${encodeURIComponent(groupId)}/finance/context?scope=${encodeURIComponent(scopeOption.key)}`,
           {
             credentials: "include",
             cache: "no-store",
           },
           "No pudimos cargar el contexto operativo principal.",
         );
-        setFinanceBooking(bookingResult.booking ?? null);
+        setFinanceContext(pickFinanceContext(contextResult));
       } catch (error) {
-        setFinanceBooking(null);
+        setFinanceContext(null);
         errors.push(
           error instanceof Error
             ? error.message
@@ -2442,7 +2487,7 @@ export default function GroupDetailPage() {
         );
       }
 
-      const scopeParam = encodeURIComponent(reservation.key);
+      const scopeParam = encodeURIComponent(scopeOption.key);
 
       try {
         const invoicesResult = await requestGroupApi<{ invoices?: Invoice[] }>(
@@ -2493,17 +2538,13 @@ export default function GroupDetailPage() {
   );
 
   const refreshFinanceData = useCallback(async () => {
-    await fetchFinanceDataByReservation(selectedFinanceReservation);
-  }, [fetchFinanceDataByReservation, selectedFinanceReservation]);
+    await fetchFinanceDataByScope(selectedFinanceScope);
+  }, [fetchFinanceDataByScope, selectedFinanceScope]);
 
   useEffect(() => {
     if (sectionFilter !== "FACTURACION") return;
-    void fetchFinanceDataByReservation(selectedFinanceReservation);
-  }, [
-    sectionFilter,
-    fetchFinanceDataByReservation,
-    selectedFinanceReservation,
-  ]);
+    void fetchFinanceDataByScope(selectedFinanceScope);
+  }, [sectionFilter, fetchFinanceDataByScope, selectedFinanceScope]);
 
   const handleFinanceInvoiceChange = (
     e: ChangeEvent<HTMLInputElement | HTMLSelectElement>,
@@ -2584,11 +2625,17 @@ export default function GroupDetailPage() {
     if (m.includes("agencia no encontrada")) {
       return "No se encontró la agencia. Contactá a un administrador.";
     }
-    if (m.includes("reserva no pertenece")) {
-      return "La reserva no pertenece a tu agencia.";
+    if (
+      m.includes("reserva no pertenece") ||
+      m.includes("contexto financiero no pertenece")
+    ) {
+      return "El contexto financiero no pertenece a tu agencia.";
     }
-    if (m.includes("reserva no encontrada")) {
-      return "No se encontró la reserva.";
+    if (
+      m.includes("reserva no encontrada") ||
+      m.includes("contexto financiero no encontrado")
+    ) {
+      return "No se encontró el contexto financiero.";
     }
     if (m.includes("falta cuit") || m.includes("cuit inválido")) {
       return "Error en el CUIT. Revisá el CUIT del pax o de la agencia.";
@@ -2686,7 +2733,10 @@ export default function GroupDetailPage() {
       toast.error("Necesitás sesión activa para facturar.");
       return;
     }
-    if (!financeBooking?.id_booking) {
+    const financeContextId = Number(
+      financeContext?.id_context ?? financeContext?.id_booking ?? 0,
+    );
+    if (!financeContextId) {
       toast.error("No se pudo identificar el contexto operativo.");
       return;
     }
@@ -2811,7 +2861,7 @@ export default function GroupDetailPage() {
     const payload = {
       passengerId: selectedFinanceInvoicePassenger.id_travel_group_passenger,
       clientId: selectedFinanceInvoiceClientId,
-      scope: selectedFinanceReservation?.key || undefined,
+      scope: selectedFinanceScope?.key || undefined,
       services: selectedServiceIds,
       tipoFactura: parseInt(financeInvoiceFormData.tipoFactura, 10),
       exchangeRate: financeInvoiceFormData.exchangeRate
@@ -2909,43 +2959,46 @@ export default function GroupDetailPage() {
 
   const financeRole = useMemo(() => String(role || "").toLowerCase(), [role]);
 
-  const collectBookingServices = useMemo<Service[]>(() => {
-    return Array.isArray(collectBooking?.services)
-      ? collectBooking.services
+  const collectContextServices = useMemo<Service[]>(() => {
+    return Array.isArray(collectContext?.services)
+      ? collectContext.services
       : [];
-  }, [collectBooking?.services]);
-  const collectServicesByBookingRef = useRef<Map<number, ServiceLite[]>>(
+  }, [collectContext?.services]);
+  const collectServicesByContextRef = useRef<Map<number, ServiceLite[]>>(
     new Map(),
   );
 
   useEffect(() => {
-    collectServicesByBookingRef.current.clear();
+    collectServicesByContextRef.current.clear();
   }, [groupId]);
 
-  const loadCollectServicesForBooking = useCallback(
-    async (bookingId: number): Promise<ServiceLite[]> => {
-      const normalizedBookingId = Number(bookingId);
-      if (!Number.isFinite(normalizedBookingId) || normalizedBookingId <= 0) {
+  const loadCollectServicesForContext = useCallback(
+    async (contextId: number): Promise<ServiceLite[]> => {
+      const normalizedContextId = Number(contextId);
+      if (!Number.isFinite(normalizedContextId) || normalizedContextId <= 0) {
         return [];
       }
 
       const cached =
-        collectServicesByBookingRef.current.get(normalizedBookingId);
+        collectServicesByContextRef.current.get(normalizedContextId);
       if (cached) return cached;
 
       if (
-        collectBooking?.id_booking === normalizedBookingId &&
-        collectBookingServices.length > 0
+        Number(
+          collectContext?.id_context ?? collectContext?.id_booking ?? 0,
+        ) === normalizedContextId &&
+        collectContextServices.length > 0
       ) {
-        const local = collectBookingServices.map(toReceiptServiceLite);
-        collectServicesByBookingRef.current.set(normalizedBookingId, local);
+        const local = collectContextServices.map(toReceiptServiceLite);
+        collectServicesByContextRef.current.set(normalizedContextId, local);
         return local;
       }
 
       const payload = await requestGroupApi<{
-        booking?: FinanceBookingPayload;
+        context?: GroupFinanceContextPayload;
+        booking?: GroupFinanceContextPayload;
       }>(
-        `/api/groups/${encodeURIComponent(groupId)}/finance/context?bookingId=${normalizedBookingId}`,
+        `/api/groups/${encodeURIComponent(groupId)}/finance/context?contextId=${normalizedContextId}&bookingId=${normalizedContextId}`,
         {
           credentials: "include",
           cache: "no-store",
@@ -2953,27 +3006,33 @@ export default function GroupDetailPage() {
         "No pudimos cargar servicios del contexto financiero.",
       );
 
-      const remoteServices = Array.isArray(payload.booking?.services)
-        ? payload.booking.services
+      const resolvedContext = pickFinanceContext(payload);
+      const remoteServices = Array.isArray(resolvedContext?.services)
+        ? resolvedContext.services
         : [];
       const mapped = remoteServices.map(toReceiptServiceLite);
-      collectServicesByBookingRef.current.set(normalizedBookingId, mapped);
+      collectServicesByContextRef.current.set(normalizedContextId, mapped);
       return mapped;
     },
-    [collectBooking?.id_booking, collectBookingServices, groupId],
+    [
+      collectContext?.id_context,
+      collectContext?.id_booking,
+      collectContextServices,
+      groupId,
+    ],
   );
 
-  const financeBookingServices = useMemo<Service[]>(() => {
-    return Array.isArray(financeBooking?.services)
-      ? financeBooking.services
+  const financeContextServices = useMemo<Service[]>(() => {
+    return Array.isArray(financeContext?.services)
+      ? financeContext.services
       : [];
-  }, [financeBooking?.services]);
+  }, [financeContext?.services]);
 
-  const paymentsBookingServices = useMemo<Service[]>(() => {
-    return Array.isArray(paymentsBooking?.services)
-      ? paymentsBooking.services
+  const paymentsContextServices = useMemo<Service[]>(() => {
+    return Array.isArray(paymentsContext?.services)
+      ? paymentsContext.services
       : [];
-  }, [paymentsBooking?.services]);
+  }, [paymentsContext?.services]);
 
   const selectedFinanceInvoicePassenger = selectedFinancePassenger;
 
@@ -2985,7 +3044,7 @@ export default function GroupDetailPage() {
   useEffect(() => {
     setFinanceInvoiceFormVisible(false);
     setFinanceInvoiceFormData(createEmptyInvoiceFormData());
-  }, [selectedFinanceReservation?.key]);
+  }, [selectedFinanceScope?.key]);
 
   useEffect(() => {
     const clientId = selectedFinanceInvoiceClientId;
@@ -3048,11 +3107,11 @@ export default function GroupDetailPage() {
   const showCobrosPanels = sectionFilter === "COBROS";
   const showPagosPanels = sectionFilter === "PAGOS";
   const showFacturacionPanel = sectionFilter === "FACTURACION";
+  const showDepartureSelector = sortedDepartures.length > 0;
   const showDepartureSection =
     !isSingleDepartureMode ||
     sortedDepartures.length === 0 ||
-    showDepartureCreate ||
-    Boolean(editingDepartureId);
+    showDepartureCreate;
 
   type ActionResult = {
     toastMessage?: string;
@@ -3187,7 +3246,9 @@ export default function GroupDetailPage() {
             credentials: "include",
             body: JSON.stringify({
               clientIds: [clientIdToAdd],
-              departureId: newPassengerDepartureId || null,
+              departureId:
+                activeDeparture?.public_id ||
+                (activeDepartureId != null ? String(activeDepartureId) : null),
             }),
           },
           "No pudimos agregar el pasajero.",
@@ -3201,7 +3262,6 @@ export default function GroupDetailPage() {
             ? firstCreated.passenger_id
             : null;
         setNewPassengerClientId(null);
-        setNewPassengerDepartureId("");
         if (newPassengerMode === "NUEVO") {
           setNewClientDraft(defaultClientDraft());
           setNewPassengerMode("EXISTENTE");
@@ -3230,7 +3290,7 @@ export default function GroupDetailPage() {
     }
   }
 
-  async function handleSaveActivePassenger(e: FormEvent) {
+  async function handleSaveActiveClient(e: FormEvent) {
     e.preventDefault();
     if (!activePassenger) {
       const msg = "Seleccioná un pasajero para editar.";
@@ -3238,45 +3298,6 @@ export default function GroupDetailPage() {
       toast.error(msg);
       return;
     }
-
-    await runAction("Edición de pasajero", async () => {
-      const payload: Record<string, unknown> = {
-        passengerIds: [activePassenger.id_travel_group_passenger],
-      };
-      if (
-        activePassengerStatus &&
-        activePassengerStatus !== activePassenger.status
-      ) {
-        payload.status = activePassengerStatus;
-      }
-      if (activePassengerDepartureId === "CLEAR") {
-        payload.clearDeparture = true;
-      } else if (activePassengerDepartureId) {
-        payload.departureId = activePassengerDepartureId;
-      }
-      payload.note = activePassengerNote.trim();
-
-      const data = await requestGroupApi<{
-        updated_count?: number;
-      }>(
-        `/api/groups/${encodeURIComponent(groupId)}/passengers/single-update`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify(payload),
-        },
-        "No pudimos guardar los cambios del pasajero.",
-      );
-      return {
-        toastMessage: "Pasajero actualizado correctamente.",
-        summaryLines: [`Registros actualizados: ${data.updated_count ?? 0}`],
-      };
-    });
-  }
-
-  async function handleSaveActiveClient(e: FormEvent) {
-    e.preventDefault();
     if (!activeClientDraft || !activeClientRaw) {
       const msg = "No hay datos de pasajero para guardar.";
       setError(msg);
@@ -3341,9 +3362,41 @@ export default function GroupDetailPage() {
         },
         "No pudimos guardar los datos del pasajero.",
       );
+
+      const passengerPayload: Record<string, unknown> = {
+        passengerIds: [activePassenger.id_travel_group_passenger],
+      };
+      if (
+        activePassengerStatus &&
+        activePassengerStatus !== activePassenger.status
+      ) {
+        passengerPayload.status = activePassengerStatus;
+      }
+      if (activePassengerDepartureId === "CLEAR") {
+        passengerPayload.clearDeparture = true;
+      } else if (activePassengerDepartureId) {
+        passengerPayload.departureId = activePassengerDepartureId;
+      }
+      passengerPayload.note = activePassengerNote.trim();
+
+      const passengerUpdate = await requestGroupApi<{
+        updated_count?: number;
+      }>(
+        `/api/groups/${encodeURIComponent(groupId)}/passengers/single-update`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(passengerPayload),
+        },
+        "No pudimos guardar los datos operativos del pasajero.",
+      );
       return {
         toastMessage: "Datos del pasajero actualizados correctamente.",
-        summaryLines: ["Los cambios personales fueron guardados."],
+        summaryLines: [
+          "Los cambios personales y operativos fueron guardados.",
+          `Registros operativos actualizados: ${passengerUpdate.updated_count ?? 0}`,
+        ],
       };
     });
   }
@@ -3395,6 +3448,10 @@ export default function GroupDetailPage() {
         : "";
     const providerValue =
       selectedOperatorName.trim() || inventoryDraft.provider.trim();
+    const scopedDepartureForPayload = !isSingleDepartureMode
+      ? activeDeparture?.public_id ||
+        (activeDepartureId != null ? String(activeDepartureId) : null)
+      : inventoryDraft.departure_id || null;
     const financialMeta: InventoryFinancialMeta = {
       v: 1,
       pricingMode: "MANUAL",
@@ -3410,7 +3467,7 @@ export default function GroupDetailPage() {
     };
 
     const payload = {
-      departure_id: inventoryDraft.departure_id || null,
+      departure_id: scopedDepartureForPayload,
       inventory_type: inventoryDraft.inventory_type.trim(),
       service_type: inventoryDraft.service_type.trim() || null,
       label: inventoryDraft.label.trim(),
@@ -3639,6 +3696,8 @@ export default function GroupDetailPage() {
   async function startEditDeparture(dep: Departure) {
     const routeId = dep.public_id || String(dep.id_travel_group_departure);
     try {
+      setEditingDepartureId(dep.id_travel_group_departure);
+      setEditingDepartureDraft(defaultDepartureDraft(dep));
       setLoadingDepartureId(dep.id_travel_group_departure);
       setError(null);
       const data = await requestGroupApi<DepartureDetail>(
@@ -3649,8 +3708,10 @@ export default function GroupDetailPage() {
         },
         "No pudimos cargar los datos de la salida.",
       );
-      setEditingDepartureId(dep.id_travel_group_departure);
       setEditingDepartureDraft(defaultDepartureDraft(data));
+      if (isSingleDepartureMode) {
+        setShowPrimaryDeparturePanel(true);
+      }
     } catch (e) {
       const msg =
         e instanceof Error
@@ -3757,9 +3818,108 @@ export default function GroupDetailPage() {
     setActivePassengerId(passengerId);
   }
 
+  const showPrimaryDepartureEditForm =
+    Boolean(primaryDeparture) &&
+    editingDepartureId === primaryDeparture?.id_travel_group_departure;
+
+  const departureEditForm = (
+    <form
+      onSubmit={handleUpdateDeparture}
+      className="space-y-3 rounded-2xl border border-amber-300/80 bg-amber-100/40 p-4 dark:border-amber-500/70 dark:bg-amber-900/15"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+          Formulario de salida
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setEditingDepartureId(null);
+            setEditingDepartureDraft(defaultDepartureDraft());
+          }}
+          className="rounded-full border border-amber-300 bg-amber-50/90 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:border-amber-500/70 dark:bg-amber-900/15 dark:text-amber-200"
+        >
+          Cancelar
+        </button>
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <label className="flex flex-col gap-1 text-sm">
+          Nombre
+          <input
+            value={editingDepartureDraft.name}
+            onChange={(e) =>
+              setEditingDepartureDraft((prev) => ({
+                ...prev,
+                name: e.target.value,
+              }))
+            }
+            disabled={submitting}
+            className={FIELD_INPUT_CLASS}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          Cupo total
+          <input
+            value={editingDepartureDraft.capacity_total}
+            onChange={(e) =>
+              setEditingDepartureDraft((prev) => ({
+                ...prev,
+                capacity_total: e.target.value,
+              }))
+            }
+            inputMode="numeric"
+            disabled={submitting}
+            className={FIELD_INPUT_CLASS}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          Fecha de salida
+          <input
+            type="date"
+            value={editingDepartureDraft.departure_date}
+            onChange={(e) =>
+              setEditingDepartureDraft((prev) => ({
+                ...prev,
+                departure_date: e.target.value,
+              }))
+            }
+            disabled={submitting}
+            className={FIELD_INPUT_CLASS}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          Fecha de regreso
+          <input
+            type="date"
+            value={editingDepartureDraft.return_date}
+            onChange={(e) =>
+              setEditingDepartureDraft((prev) => ({
+                ...prev,
+                return_date: e.target.value,
+              }))
+            }
+            disabled={submitting}
+            className={FIELD_INPUT_CLASS}
+          />
+        </label>
+      </div>
+      <button
+        type="submit"
+        disabled={submitting}
+        className="rounded-full border border-amber-300 bg-amber-100/90 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-500/70 dark:bg-amber-900/15 dark:text-amber-200"
+      >
+        {submitting ? (
+          <Spinner label="Guardando salida..." />
+        ) : (
+          "Guardar cambios de salida"
+        )}
+      </button>
+    </form>
+  );
+
   if (loading && !group) {
     return (
-      <main className="min-h-screen px-4 py-6 text-slate-900 dark:text-slate-100 sm:px-6 lg:px-8">
+      <main className="min-h-screen px-4 py-6 text-sky-950 dark:text-sky-50 sm:px-6 lg:px-8 [&_*]:!text-sky-950 dark:[&_*]:!text-sky-50">
         <div className="mx-auto max-w-7xl rounded-3xl border border-sky-200/80 bg-white/70 p-6 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-700/40 dark:bg-sky-950/10">
           Cargando grupal...
         </div>
@@ -3769,7 +3929,7 @@ export default function GroupDetailPage() {
 
   if (!group) {
     return (
-      <main className="min-h-screen px-4 py-6 text-slate-900 dark:text-slate-100 sm:px-6 lg:px-8">
+      <main className="min-h-screen px-4 py-6 text-sky-950 dark:text-sky-50 sm:px-6 lg:px-8 [&_*]:!text-sky-950 dark:[&_*]:!text-sky-50">
         <div className="mx-auto max-w-7xl rounded-3xl border border-amber-300/80 bg-amber-100/90 p-6 text-amber-900 shadow-sm shadow-amber-900/10 backdrop-blur-sm dark:border-amber-500/70 dark:bg-amber-900/15 dark:text-amber-200">
           {error || "No se encontró la grupal."}
           <div className="mt-3">
@@ -3786,94 +3946,143 @@ export default function GroupDetailPage() {
   }
 
   return (
-    <main className="min-h-screen px-4 py-6 text-slate-900 dark:text-slate-100 sm:px-6 lg:px-8 [&_input]:border-sky-300/80 [&_input]:text-slate-900 dark:[&_input]:border-sky-700/40 dark:[&_input]:bg-sky-950/20 dark:[&_input]:text-slate-100 [&_select]:border-sky-300/80 [&_select]:text-slate-900 dark:[&_select]:border-sky-700/40 dark:[&_select]:bg-sky-950/20 dark:[&_select]:text-slate-100 [&_textarea]:border-sky-300/80 [&_textarea]:text-slate-900 dark:[&_textarea]:border-sky-700/40 dark:[&_textarea]:bg-sky-950/20 dark:[&_textarea]:text-slate-100">
+    <main className="min-h-screen px-4 py-6 text-sky-950 dark:text-sky-50 sm:px-6 lg:px-8 [&_*]:!text-sky-950 dark:[&_*]:!text-sky-50 [&_input]:border-sky-300/80 [&_input]:!text-sky-950 dark:[&_input]:border-sky-700/40 dark:[&_input]:bg-sky-950/20 dark:[&_input]:!text-sky-50 [&_select:hover]:cursor-pointer [&_select]:border-sky-300/80 [&_select]:!text-sky-950 dark:[&_select]:border-sky-700/40 dark:[&_select]:bg-sky-950/20 dark:[&_select]:!text-sky-50 [&_textarea]:border-sky-300/80 [&_textarea]:!text-sky-950 dark:[&_textarea]:border-sky-700/40 dark:[&_textarea]:bg-sky-950/20 dark:[&_textarea]:!text-sky-50">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <header
           id="panel-resumen"
           className="rounded-3xl border border-sky-200/80 bg-white p-6 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-600/30 dark:bg-sky-950/10"
         >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-extrabold text-slate-900 dark:text-slate-100">
-                  {group.name}
-                </h1>
-              </div>
-            </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[auto,1fr,auto] md:items-center">
             <Link
               href="/groups"
-              className="rounded-full border border-sky-300 bg-white/90 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-400 dark:border-sky-600/30 dark:bg-sky-950/20 dark:text-slate-200 dark:hover:border-sky-600"
+              className="inline-flex w-fit items-center gap-2 rounded-full border border-sky-300 bg-white/90 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-400 dark:border-sky-600/30 dark:bg-sky-950/20 dark:text-slate-200 dark:hover:border-sky-600"
             >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+                className="size-4"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"
+                />
+              </svg>
               Volver
             </Link>
-          </div>
-          {showGroupPanels && isSingleDepartureMode ? (
-            <div className="mt-4 rounded-2xl border border-sky-200/80 bg-white p-4 shadow-sm shadow-slate-900/10 dark:border-sky-600/30 dark:bg-sky-950/10">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    Salida principal
-                  </p>
-                  <p className="text-xs text-slate-600 dark:text-slate-400">
-                    {primaryDeparture
-                      ? formatDepartureReference(primaryDeparture)
-                      : "Sin salida creada"}
-                  </p>
-                </div>
-                {primaryDeparture ? (
-                  <button
-                    type="button"
-                    onClick={() => void startEditDeparture(primaryDeparture)}
-                    disabled={
-                      submitting ||
-                      loadingDepartureId ===
-                        primaryDeparture.id_travel_group_departure
-                    }
-                    className="rounded-full border border-sky-300 bg-sky-50/70 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-600/30 dark:bg-sky-950/20 dark:text-slate-200 dark:hover:border-sky-600"
-                  >
-                    {loadingDepartureId ===
-                    primaryDeparture.id_travel_group_departure ? (
-                      "Cargando..."
-                    ) : (
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        strokeWidth={1.5}
-                        stroke="currentColor"
-                        className="size-5"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
-                        />
-                      </svg>
-                    )}
-                  </button>
-                ) : null}
-              </div>
+            <div className="min-w-0 text-right">
+              <h1 className="truncate text-2xl font-extrabold text-slate-900 dark:text-slate-100">
+                {group.name}
+              </h1>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600 dark:text-slate-400">
+                Detalle de grupal
+              </p>
             </div>
-          ) : null}
+            <div className="hidden md:block" aria-hidden />
+          </div>
         </header>
 
         <nav className="sticky top-3 z-10 rounded-2xl border border-sky-200/80 bg-white p-2 shadow-sm shadow-slate-900/10 dark:border-sky-600/30 dark:bg-sky-950/20">
-          <div className="flex flex-wrap gap-2">
-            {SECTION_FILTERS.map((section) => (
-              <button
-                type="button"
-                key={`section-filter-${section.id}`}
-                onClick={() => setSectionFilter(section.id)}
-                className={pillClass(
-                  sectionFilter === section.id,
-                  section.tone,
-                )}
-              >
-                {section.label}
-              </button>
-            ))}
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap gap-2">
+              {SECTION_FILTERS.map((section) => (
+                <button
+                  type="button"
+                  key={`section-filter-${section.id}`}
+                  onClick={() => setSectionFilter(section.id)}
+                  className={pillClass(
+                    sectionFilter === section.id,
+                    section.tone,
+                  )}
+                >
+                  {section.label}
+                </button>
+              ))}
+            </div>
+
+            {showDepartureSelector ? (
+              <label className="relative flex w-fit items-center rounded-xl border border-sky-300/80 bg-sky-50/70 px-2.5 py-1 text-[11px] font-medium dark:border-sky-500/60 dark:bg-sky-900/20">
+                <select
+                  value={
+                    activeDepartureId ??
+                    sortedDepartures[0]?.id_travel_group_departure ??
+                    ""
+                  }
+                  onChange={(e) => {
+                    const nextDepartureId = e.target.value
+                      ? Number(e.target.value)
+                      : null;
+                    setActiveDepartureId(nextDepartureId);
+                    void fetchAll(nextDepartureId);
+                  }}
+                  disabled={loading || submitting}
+                  className="w-full bg-transparent text-[11px] font-normal outline-none"
+                >
+                  {sortedDepartures.map((dep) => (
+                    <option
+                      key={`active-departure-${dep.id_travel_group_departure}`}
+                      value={dep.id_travel_group_departure}
+                    >
+                      {dep.name} · {formatDate(dep.departure_date)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
           </div>
         </nav>
+
+        {showGroupPanels && isSingleDepartureMode ? (
+          <>
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
+              Salida principal
+            </p>
+            <section className="overflow-auto rounded-3xl border border-sky-200/80 bg-white shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-600/30 dark:bg-sky-950/10">
+              <CollapsibleSectionHeader
+                open={showPrimaryDeparturePanel}
+                onToggle={() => {
+                  const next = !showPrimaryDeparturePanel;
+                  setShowPrimaryDeparturePanel(next);
+                  if (
+                    next &&
+                    primaryDeparture &&
+                    editingDepartureId !==
+                      primaryDeparture.id_travel_group_departure &&
+                    loadingDepartureId !==
+                      primaryDeparture.id_travel_group_departure
+                  ) {
+                    void startEditDeparture(primaryDeparture);
+                  }
+                }}
+                title="Salida principal"
+                subtitle={
+                  primaryDeparture
+                    ? formatDepartureReference(primaryDeparture)
+                    : "Sin salida creada"
+                }
+              />
+              <CollapsiblePanel
+                open={showPrimaryDeparturePanel}
+                className="px-5 pb-5 pt-4 md:px-6"
+              >
+                {!primaryDeparture ? (
+                  <p className="rounded-2xl border border-sky-300/70 bg-white px-4 py-3 text-sm text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300">
+                    Todavía no hay salida principal creada.
+                  </p>
+                ) : showPrimaryDepartureEditForm ? (
+                  departureEditForm
+                ) : (
+                  <div className="rounded-2xl border border-sky-300/70 bg-white px-4 py-3 text-sm text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300">
+                    Cargando formulario de salida...
+                  </div>
+                )}
+              </CollapsiblePanel>
+            </section>
+          </>
+        ) : null}
 
         {error ? (
           <p className="rounded-2xl border border-amber-300/80 bg-amber-100/90 px-4 py-2 text-sm text-amber-900 dark:border-amber-500/70 dark:bg-amber-900/15 dark:text-amber-200">
@@ -3887,529 +4096,283 @@ export default function GroupDetailPage() {
         ) : null}
 
         {showGroupPanels && showDepartureSection ? (
-          <section
-            id="panel-salidas"
-            className={`rounded-3xl border border-sky-200/80 bg-white shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-600/30 dark:bg-sky-950/10 ${
-              isSingleDepartureMode ? "p-4" : "p-5"
-            }`}
-          >
-            {!isSingleDepartureMode || sortedDepartures.length === 0 ? (
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                    {isSingleDepartureMode
-                      ? "Salida principal"
-                      : "Gestión de salidas"}
-                  </h2>
-                  <p className="text-xs text-slate-700 dark:text-slate-300">
-                    {isSingleDepartureMode
-                      ? "Creá la salida principal para operar esta grupal."
-                      : "Creá, editá o eliminá lotes/salidas de esta grupal."}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowDepartureCreate((prev) => !prev);
-                      if (!showDepartureCreate) {
-                        setCreateDepartureDraft(
-                          defaultDepartureDraft({
-                            name: group.name,
-                            status: group.status,
-                            capacity_total: group.capacity_total,
-                            allow_overbooking: group.allow_overbooking,
-                            waitlist_enabled: group.waitlist_enabled,
-                          }),
-                        );
-                      }
-                    }}
-                    className={pillClass(showDepartureCreate, "sky")}
-                  >
-                    {showDepartureCreate
-                      ? "Cancelar nueva salida"
-                      : isSingleDepartureMode
-                        ? "Crear salida principal"
-                        : "Agregar salida"}
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
-            {sortedDepartures.length === 0 ? (
-              <p className="rounded-2xl border border-sky-300/70 bg-white px-4 py-3 text-sm text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300">
-                {isSingleDepartureMode
-                  ? "La salida principal todavía no está creada."
-                  : "Esta grupal todavía no tiene salidas cargadas."}
-              </p>
-            ) : isSingleDepartureMode ? null : (
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {sortedDepartures.map((dep) => (
-                  <article
-                    key={dep.id_travel_group_departure}
-                    className="rounded-2xl border border-sky-300/70 bg-white p-4 shadow-sm shadow-slate-900/10 dark:border-sky-600/30 dark:bg-sky-950/10"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <p className="font-semibold text-slate-900 dark:text-slate-100">
-                          {dep.name}
-                        </p>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">
-                          {formatDepartureReference(dep)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-700 dark:text-slate-300">
-                        <span>Salida: {formatDate(dep.departure_date)}</span>
-                        <span>Regreso: {formatDate(dep.return_date)}</span>
-                        <span>Cupo: {dep.capacity_total ?? "-"}</span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void startEditDeparture(dep)}
-                          disabled={
-                            submitting ||
-                            loadingDepartureId === dep.id_travel_group_departure
-                          }
-                          className="rounded-full border border-sky-300 bg-sky-50/70 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-600/30 dark:bg-sky-950/20 dark:text-slate-200 dark:hover:border-sky-600"
-                        >
-                          {loadingDepartureId === dep.id_travel_group_departure
-                            ? "Cargando..."
-                            : "Editar"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleDeleteDeparture(dep)}
-                          disabled={submitting}
-                          className="rounded-full border border-rose-300 bg-rose-100/90 px-3 py-1.5 text-xs font-semibold text-rose-800 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/70 dark:bg-rose-900/15 dark:text-rose-200"
-                        >
-                          Eliminar
-                        </button>
-                      </div>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-
-            <CollapsiblePanel open={showDepartureCreate} className="mt-4">
-              <form
-                onSubmit={handleCreateDeparture}
-                className="space-y-3 rounded-2xl border border-sky-300/70 bg-white p-4 dark:border-sky-600/30 dark:bg-sky-950/10"
-              >
-                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Nueva salida
-                </p>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <label className="flex flex-col gap-1 text-sm md:col-span-2">
-                    Nombre
-                    <input
-                      value={createDepartureDraft.name}
-                      onChange={(e) =>
-                        setCreateDepartureDraft((prev) => ({
-                          ...prev,
-                          name: e.target.value,
-                        }))
-                      }
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                      placeholder="Lote 1 / Salida principal"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    Cupo total
-                    <input
-                      value={createDepartureDraft.capacity_total}
-                      onChange={(e) =>
-                        setCreateDepartureDraft((prev) => ({
-                          ...prev,
-                          capacity_total: e.target.value,
-                        }))
-                      }
-                      inputMode="numeric"
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                      placeholder="20"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    Fecha de salida
-                    <input
-                      type="date"
-                      value={createDepartureDraft.departure_date}
-                      onChange={(e) =>
-                        setCreateDepartureDraft((prev) => ({
-                          ...prev,
-                          departure_date: e.target.value,
-                        }))
-                      }
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    Fecha de regreso
-                    <input
-                      type="date"
-                      value={createDepartureDraft.return_date}
-                      onChange={(e) =>
-                        setCreateDepartureDraft((prev) => ({
-                          ...prev,
-                          return_date: e.target.value,
-                        }))
-                      }
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    />
-                  </label>
-                  <div className="space-y-2 md:col-span-2">
-                    <label className="flex flex-col gap-1 text-sm">
-                      Código
-                      <input
-                        value={createDepartureDraft.code}
-                        onChange={(e) =>
-                          setCreateDepartureDraft((prev) => ({
-                            ...prev,
-                            code: e.target.value,
-                          }))
-                        }
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                        placeholder="MX-LOTE-1"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 text-sm">
-                      Fecha de liberación
-                      <input
-                        type="date"
-                        value={createDepartureDraft.release_date}
-                        onChange={(e) =>
-                          setCreateDepartureDraft((prev) => ({
-                            ...prev,
-                            release_date: e.target.value,
-                          }))
-                        }
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                      />
-                    </label>
-                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-sky-200 bg-sky-100/50 p-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setCreateDepartureDraft((prev) => ({
-                            ...prev,
-                            allow_overbooking: !prev.allow_overbooking,
-                          }))
-                        }
-                        className={`rounded-xl border px-3 py-1.5 text-xs font-semibold ${
-                          createDepartureDraft.allow_overbooking
-                            ? "border-emerald-300 bg-emerald-100 text-emerald-700"
-                            : "border-sky-300 bg-white text-slate-600"
-                        }`}
-                        disabled={submitting}
-                      >
-                        {createDepartureDraft.allow_overbooking
-                          ? "Sobreventa: activada"
-                          : "Sobreventa: desactivada"}
-                      </button>
-                      {createDepartureDraft.allow_overbooking ? (
-                        <input
-                          value={createDepartureDraft.overbooking_limit}
-                          onChange={(e) =>
-                            setCreateDepartureDraft((prev) => ({
-                              ...prev,
-                              overbooking_limit: e.target.value,
-                            }))
-                          }
-                          inputMode="numeric"
-                          disabled={submitting}
-                          className="w-44 rounded-xl border border-sky-300/80 bg-white px-3 py-1.5 text-xs text-slate-900 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100"
-                          placeholder="Límite sobreventa"
-                        />
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setCreateDepartureDraft((prev) => ({
-                            ...prev,
-                            waitlist_enabled: !prev.waitlist_enabled,
-                          }))
-                        }
-                        className={`rounded-xl border px-3 py-1.5 text-xs font-semibold ${
-                          createDepartureDraft.waitlist_enabled
-                            ? "border-amber-300 bg-amber-100 text-amber-800"
-                            : "border-sky-300 bg-white text-slate-600"
-                        }`}
-                        disabled={submitting}
-                      >
-                        {createDepartureDraft.waitlist_enabled
-                          ? "Lista de espera: activada"
-                          : "Lista de espera: desactivada"}
-                      </button>
-                      {createDepartureDraft.waitlist_enabled ? (
-                        <input
-                          value={createDepartureDraft.waitlist_limit}
-                          onChange={(e) =>
-                            setCreateDepartureDraft((prev) => ({
-                              ...prev,
-                              waitlist_limit: e.target.value,
-                            }))
-                          }
-                          inputMode="numeric"
-                          disabled={submitting}
-                          className="w-44 rounded-xl border border-sky-300/80 bg-white px-3 py-1.5 text-xs text-slate-900 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100"
-                          placeholder="Límite lista espera"
-                        />
-                      ) : null}
-                    </div>
-                    <label className="flex flex-col gap-1 text-sm">
-                      Nota interna
-                      <textarea
-                        value={createDepartureDraft.note}
-                        onChange={(e) =>
-                          setCreateDepartureDraft((prev) => ({
-                            ...prev,
-                            note: e.target.value,
-                          }))
-                        }
-                        rows={2}
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                      />
-                    </label>
-                  </div>
-                </div>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="rounded-full border border-sky-300 bg-white/90 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600/30 dark:bg-sky-950/20 dark:text-slate-200 dark:hover:border-sky-600"
-                >
-                  {submitting ? (
-                    <Spinner label="Creando salida..." />
-                  ) : (
-                    "Crear salida"
-                  )}
-                </button>
-              </form>
-            </CollapsiblePanel>
-
-            <CollapsiblePanel
-              open={Boolean(editingDepartureId)}
-              className="mt-4"
+          <>
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
+              Gestión de salidas
+            </p>
+            <section
+              id="panel-salidas"
+              className="overflow-auto rounded-3xl border border-sky-200/80 bg-white shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-600/30 dark:bg-sky-950/10"
             >
-              <form
-                onSubmit={handleUpdateDeparture}
-                className="space-y-3 rounded-2xl border border-amber-300/80 bg-amber-100/40 p-4 dark:border-amber-500/70 dark:bg-amber-900/15"
+              <CollapsibleSectionHeader
+                open={showDeparturePanel}
+                onToggle={() => setShowDeparturePanel((prev) => !prev)}
+                title={
+                  isSingleDepartureMode
+                    ? "Salida principal"
+                    : "Salidas"
+                }
+                subtitle={
+                  isSingleDepartureMode
+                    ? "Creá la salida principal para operar esta grupal."
+                    : "Creá, editá o eliminá lotes/salidas de esta grupal."
+                }
+              />
+              <CollapsiblePanel
+                open={showDeparturePanel}
+                className="px-5 pb-5 pt-4 md:px-6"
               >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                    Editar salida
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingDepartureId(null);
-                      setEditingDepartureDraft(defaultDepartureDraft());
-                    }}
-                    className="rounded-full border border-amber-300 bg-amber-50/90 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:border-amber-500/70 dark:bg-amber-900/15 dark:text-amber-200"
-                  >
-                    Cancelar edición
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <label className="flex flex-col gap-1 text-sm md:col-span-2">
-                    Nombre
-                    <input
-                      value={editingDepartureDraft.name}
-                      onChange={(e) =>
-                        setEditingDepartureDraft((prev) => ({
-                          ...prev,
-                          name: e.target.value,
-                        }))
-                      }
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    Cupo total
-                    <input
-                      value={editingDepartureDraft.capacity_total}
-                      onChange={(e) =>
-                        setEditingDepartureDraft((prev) => ({
-                          ...prev,
-                          capacity_total: e.target.value,
-                        }))
-                      }
-                      inputMode="numeric"
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    Fecha de salida
-                    <input
-                      type="date"
-                      value={editingDepartureDraft.departure_date}
-                      onChange={(e) =>
-                        setEditingDepartureDraft((prev) => ({
-                          ...prev,
-                          departure_date: e.target.value,
-                        }))
-                      }
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    Fecha de regreso
-                    <input
-                      type="date"
-                      value={editingDepartureDraft.return_date}
-                      onChange={(e) =>
-                        setEditingDepartureDraft((prev) => ({
-                          ...prev,
-                          return_date: e.target.value,
-                        }))
-                      }
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    />
-                  </label>
-                  <div className="space-y-2 md:col-span-2">
-                    <label className="flex flex-col gap-1 text-sm">
-                      Código
-                      <input
-                        value={editingDepartureDraft.code}
-                        onChange={(e) =>
-                          setEditingDepartureDraft((prev) => ({
-                            ...prev,
-                            code: e.target.value,
-                          }))
-                        }
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 text-sm">
-                      Fecha de liberación
-                      <input
-                        type="date"
-                        value={editingDepartureDraft.release_date}
-                        onChange={(e) =>
-                          setEditingDepartureDraft((prev) => ({
-                            ...prev,
-                            release_date: e.target.value,
-                          }))
-                        }
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                      />
-                    </label>
-                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/70 p-2">
+                {!isSingleDepartureMode || sortedDepartures.length === 0 ? (
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-xs text-slate-700 dark:text-slate-300">
+                      {isSingleDepartureMode
+                        ? "La capacidad se define por salida."
+                        : `${sortedDepartures.length} salida${sortedDepartures.length === 1 ? "" : "s"} cargada${sortedDepartures.length === 1 ? "" : "s"}.`}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={() =>
-                          setEditingDepartureDraft((prev) => ({
-                            ...prev,
-                            allow_overbooking: !prev.allow_overbooking,
-                          }))
-                        }
-                        className={`rounded-xl border px-3 py-1.5 text-xs font-semibold ${
-                          editingDepartureDraft.allow_overbooking
-                            ? "border-emerald-300 bg-emerald-100 text-emerald-700"
-                            : "border-amber-300 bg-white text-slate-600"
-                        }`}
-                        disabled={submitting}
-                      >
-                        {editingDepartureDraft.allow_overbooking
-                          ? "Sobreventa: activada"
-                          : "Sobreventa: desactivada"}
-                      </button>
-                      {editingDepartureDraft.allow_overbooking ? (
-                        <input
-                          value={editingDepartureDraft.overbooking_limit}
-                          onChange={(e) =>
-                            setEditingDepartureDraft((prev) => ({
-                              ...prev,
-                              overbooking_limit: e.target.value,
-                            }))
+                        onClick={() => {
+                          setShowDepartureCreate((prev) => !prev);
+                          if (!showDepartureCreate) {
+                            setCreateDepartureDraft(
+                              defaultDepartureDraft({
+                                name: group.name,
+                                status: group.status,
+                                capacity_total: group.capacity_total,
+                              }),
+                            );
                           }
-                          inputMode="numeric"
-                          disabled={submitting}
-                          className="w-44 rounded-xl border border-sky-300/80 bg-white px-3 py-1.5 text-xs text-slate-900 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100"
-                          placeholder="Límite sobreventa"
-                        />
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEditingDepartureDraft((prev) => ({
-                            ...prev,
-                            waitlist_enabled: !prev.waitlist_enabled,
-                          }))
-                        }
-                        className={`rounded-xl border px-3 py-1.5 text-xs font-semibold ${
-                          editingDepartureDraft.waitlist_enabled
-                            ? "border-amber-300 bg-amber-100 text-amber-800"
-                            : "border-amber-300 bg-white text-slate-600"
-                        }`}
-                        disabled={submitting}
+                        }}
+                        className={pillClass(showDepartureCreate, "sky")}
                       >
-                        {editingDepartureDraft.waitlist_enabled
-                          ? "Lista de espera: activada"
-                          : "Lista de espera: desactivada"}
+                        {showDepartureCreate
+                          ? "Cancelar nueva salida"
+                          : isSingleDepartureMode
+                            ? "Crear salida principal"
+                            : "Agregar salida"}
                       </button>
-                      {editingDepartureDraft.waitlist_enabled ? (
-                        <input
-                          value={editingDepartureDraft.waitlist_limit}
-                          onChange={(e) =>
-                            setEditingDepartureDraft((prev) => ({
-                              ...prev,
-                              waitlist_limit: e.target.value,
-                            }))
-                          }
-                          inputMode="numeric"
-                          disabled={submitting}
-                          className="w-44 rounded-xl border border-sky-300/80 bg-white px-3 py-1.5 text-xs text-slate-900 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100"
-                          placeholder="Límite lista espera"
-                        />
-                      ) : null}
                     </div>
-                    <label className="flex flex-col gap-1 text-sm">
-                      Nota interna
-                      <textarea
-                        value={editingDepartureDraft.note}
-                        onChange={(e) =>
-                          setEditingDepartureDraft((prev) => ({
-                            ...prev,
-                            note: e.target.value,
-                          }))
-                        }
-                        rows={2}
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                      />
-                    </label>
                   </div>
-                </div>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="rounded-full border border-amber-300 bg-amber-100/90 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-500/70 dark:bg-amber-900/15 dark:text-amber-200"
-                >
-                  {submitting ? (
-                    <Spinner label="Guardando salida..." />
-                  ) : (
-                    "Guardar cambios de salida"
-                  )}
-                </button>
-              </form>
-            </CollapsiblePanel>
-          </section>
+                ) : null}
+
+                {sortedDepartures.length === 0 ? (
+                  <p className="rounded-2xl border border-sky-300/70 bg-white px-4 py-3 text-sm text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300">
+                    {isSingleDepartureMode
+                      ? "La salida principal todavía no está creada."
+                      : "Esta grupal todavía no tiene salidas cargadas."}
+                  </p>
+                ) : isSingleDepartureMode ? null : (
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {sortedDepartures.map((dep) => (
+                      <article
+                        key={dep.id_travel_group_departure}
+                        className="rounded-2xl border border-sky-300/70 bg-white p-4 shadow-sm shadow-slate-900/10 dark:border-sky-600/30 dark:bg-sky-950/10"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="font-semibold text-slate-900 dark:text-slate-100">
+                              {dep.name}
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                              {formatDepartureReference(dep)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-700 dark:text-slate-300">
+                            <span>
+                              Salida: {formatDate(dep.departure_date)}
+                            </span>
+                            <span>Regreso: {formatDate(dep.return_date)}</span>
+                            <span>Cupo: {dep.capacity_total ?? "-"}</span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void startEditDeparture(dep)}
+                              disabled={
+                                submitting ||
+                                loadingDepartureId ===
+                                  dep.id_travel_group_departure
+                              }
+                              className="inline-flex items-center justify-center rounded-full border border-sky-300 bg-sky-50/70 p-2 text-sky-800 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-600/30 dark:bg-sky-950/20 dark:text-sky-200 dark:hover:border-sky-600"
+                              title="Editar salida"
+                              aria-label="Editar salida"
+                            >
+                              {loadingDepartureId ===
+                              dep.id_travel_group_departure ? (
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  className="size-4 animate-spin"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth={2}
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M16 16v-3a4 4 0 0 0-8 0v3"
+                                  />
+                                  <circle
+                                    cx="12"
+                                    cy="17"
+                                    r="1"
+                                    fill="currentColor"
+                                  />
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M4 12a8 8 0 0 1 8-8"
+                                  />
+                                </svg>
+                              ) : (
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  strokeWidth={1.5}
+                                  stroke="currentColor"
+                                  className="size-5 p-px"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+                                  />
+                                </svg>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteDeparture(dep)}
+                              disabled={submitting}
+                              className="inline-flex items-center justify-center rounded-full border border-rose-300 bg-rose-100/90 p-2 text-rose-800 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/70 dark:bg-rose-900/15 dark:text-rose-200"
+                              title="Eliminar salida"
+                              aria-label="Eliminar salida"
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                strokeWidth={1.5}
+                                stroke="currentColor"
+                                className="size-5 p-px"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                                />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
+
+                <CollapsiblePanel open={showDepartureCreate} className="mt-4">
+                  <form
+                    onSubmit={handleCreateDeparture}
+                    className="space-y-3 rounded-2xl border border-sky-300/70 bg-white p-4 dark:border-sky-600/30 dark:bg-sky-950/10"
+                  >
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      Nueva salida
+                    </p>
+                    <p className="text-xs text-slate-600 dark:text-slate-300">
+                      El código de salida se genera automáticamente.
+                    </p>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <label className="flex flex-col gap-1 text-sm">
+                        Nombre
+                        <input
+                          value={createDepartureDraft.name}
+                          onChange={(e) =>
+                            setCreateDepartureDraft((prev) => ({
+                              ...prev,
+                              name: e.target.value,
+                            }))
+                          }
+                          disabled={submitting}
+                          className={FIELD_INPUT_CLASS}
+                          placeholder="Lote 1 / Salida principal"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm">
+                        Cupo total de esta salida
+                        <input
+                          value={createDepartureDraft.capacity_total}
+                          onChange={(e) =>
+                            setCreateDepartureDraft((prev) => ({
+                              ...prev,
+                              capacity_total: e.target.value,
+                            }))
+                          }
+                          inputMode="numeric"
+                          disabled={submitting}
+                          className={FIELD_INPUT_CLASS}
+                          placeholder="20"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm">
+                        Fecha de salida
+                        <input
+                          type="date"
+                          value={createDepartureDraft.departure_date}
+                          onChange={(e) =>
+                            setCreateDepartureDraft((prev) => ({
+                              ...prev,
+                              departure_date: e.target.value,
+                            }))
+                          }
+                          disabled={submitting}
+                          className={FIELD_INPUT_CLASS}
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm">
+                        Fecha de regreso
+                        <input
+                          type="date"
+                          value={createDepartureDraft.return_date}
+                          onChange={(e) =>
+                            setCreateDepartureDraft((prev) => ({
+                              ...prev,
+                              return_date: e.target.value,
+                            }))
+                          }
+                          disabled={submitting}
+                          className={FIELD_INPUT_CLASS}
+                        />
+                      </label>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={submitting}
+                      className="rounded-full border border-sky-300 bg-white/90 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600/30 dark:bg-sky-950/20 dark:text-slate-200 dark:hover:border-sky-600"
+                    >
+                      {submitting ? (
+                        <Spinner label="Creando salida..." />
+                      ) : (
+                        "Crear salida"
+                      )}
+                    </button>
+                  </form>
+                </CollapsiblePanel>
+
+                {!isSingleDepartureMode ? (
+                  <CollapsiblePanel
+                    open={Boolean(editingDepartureId)}
+                    className="mt-4"
+                  >
+                    {departureEditForm}
+                  </CollapsiblePanel>
+                ) : null}
+              </CollapsiblePanel>
+            </section>
+          </>
         ) : null}
 
         {showGroupPanels ? (
@@ -4419,25 +4382,19 @@ export default function GroupDetailPage() {
             </p>
             <section
               id="panel-pasajero-activo"
-              className="rounded-3xl border border-sky-200/80 bg-white p-5 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-600/30 dark:bg-sky-950/10"
+              className="overflow-auto rounded-3xl border border-sky-200/80 bg-white shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-600/30 dark:bg-sky-950/10"
             >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                    Formulario de pasajero
-                  </h2>
-                  <p className="text-xs text-slate-700 dark:text-slate-300">
-                    Un único formulario para alta y edición de pasajeros.
-                  </p>
-                </div>
-                <ToggleIconButton
-                  open={showPassengerForm}
-                  onClick={() => setShowPassengerForm((prev) => !prev)}
-                  label="formulario"
-                />
-              </div>
+              <CollapsibleSectionHeader
+                open={showPassengerForm}
+                onToggle={() => setShowPassengerForm((prev) => !prev)}
+                title="Pax"
+                subtitle="Un único formulario para alta y edición de pasajeros."
+              />
 
-              <CollapsiblePanel open={showPassengerForm} className="mt-3">
+              <CollapsiblePanel
+                open={showPassengerForm}
+                className="px-5 pb-5 pt-4 md:px-6"
+              >
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="inline-flex items-center gap-1 rounded-2xl bg-sky-50 p-1.5 shadow-inner dark:bg-sky-900/15">
                     <button
@@ -4577,35 +4534,6 @@ export default function GroupDetailPage() {
                           </motion.div>
                         </AnimatePresence>
 
-                        {!isSingleDepartureMode ? (
-                          <label className="flex flex-col gap-1 text-sm">
-                            <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
-                              Salida destino
-                            </span>
-                            <select
-                              value={newPassengerDepartureId}
-                              onChange={(e) =>
-                                setNewPassengerDepartureId(e.target.value)
-                              }
-                              disabled={submitting}
-                              className="rounded-2xl border bg-white/90 px-3 py-2 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70"
-                            >
-                              <option value="">Automática</option>
-                              {sortedDepartures.map((dep) => (
-                                <option
-                                  key={dep.id_travel_group_departure}
-                                  value={
-                                    dep.public_id ||
-                                    dep.id_travel_group_departure
-                                  }
-                                >
-                                  {dep.name} · {formatDate(dep.departure_date)}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        ) : null}
-
                         {newPassengerMode === "NUEVO" ? (
                           <button
                             type="submit"
@@ -4635,97 +4563,6 @@ export default function GroupDetailPage() {
                               : `Cliente Nº${activePassenger.client_id ?? "-"}`}
                           </span>
                         </div>
-
-                        <form
-                          onSubmit={handleSaveActivePassenger}
-                          className="flex flex-col gap-3 rounded-2xl border border-sky-300/70 bg-white p-4 dark:border-sky-600/30 dark:bg-sky-950/10"
-                        >
-                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                            Datos operativos
-                          </p>
-                          {!isSingleDepartureMode && (
-                            <label className="flex flex-col gap-1 text-sm">
-                              <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
-                                Salida
-                              </span>
-                              <select
-                                value={activePassengerDepartureId}
-                                onChange={(e) =>
-                                  setActivePassengerDepartureId(e.target.value)
-                                }
-                                disabled={submitting}
-                                className="rounded-2xl border bg-white/90 px-3 py-2 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70"
-                              >
-                                <option value="CLEAR">
-                                  Sin salida asignada
-                                </option>
-                                {sortedDepartures.map((dep) => (
-                                  <option
-                                    key={dep.id_travel_group_departure}
-                                    value={
-                                      dep.public_id ||
-                                      dep.id_travel_group_departure
-                                    }
-                                  >
-                                    {dep.name} ·{" "}
-                                    {formatDate(dep.departure_date)}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                          )}
-                          <label className="flex flex-col gap-1 text-sm">
-                            <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
-                              Nota interna
-                            </span>
-                            <textarea
-                              value={activePassengerNote}
-                              onChange={(e) =>
-                                setActivePassengerNote(e.target.value)
-                              }
-                              rows={2}
-                              disabled={submitting}
-                              placeholder="Observaciones de este pasajero dentro de la grupal..."
-                              className="rounded-2xl border bg-white/90 px-3 py-2 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70"
-                            />
-                          </label>
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="submit"
-                              disabled={submitting}
-                              className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600/40 dark:bg-sky-950/20 dark:text-sky-200"
-                            >
-                              {submitting ? (
-                                <Spinner label="Guardando..." />
-                              ) : (
-                                "Guardar datos operativos"
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              disabled={submitting}
-                              onClick={() =>
-                                void handleDeletePassenger(activePassenger)
-                              }
-                              className="rounded-full border border-rose-300 bg-rose-100/90 px-4 py-2 text-sm font-semibold text-rose-800 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-500/70 dark:bg-rose-900/15 dark:text-rose-200"
-                            >
-                              <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                strokeWidth={1.5}
-                                stroke="currentColor"
-                                className="size-5"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
-                                />
-                              </svg>
-                            </button>
-                          </div>
-                        </form>
 
                         <form
                           onSubmit={handleSaveActiveClient}
@@ -4759,17 +4596,116 @@ export default function GroupDetailPage() {
                                 title="Datos personales del pasajero"
                                 description="Este bloque se reutiliza para editar la información del pasajero activo."
                               />
-                              <button
-                                type="submit"
-                                disabled={submitting}
-                                className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600/40 dark:bg-sky-950/20 dark:text-sky-200"
-                              >
-                                {submitting ? (
-                                  <Spinner label="Guardando..." />
-                                ) : (
-                                  "Guardar datos personales"
+                              <div className="space-y-3">
+                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                  Datos operativos
+                                </p>
+                                {!isSingleDepartureMode && (
+                                  <label className="flex flex-col gap-1 text-sm">
+                                    <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
+                                      Salida
+                                    </span>
+                                    <select
+                                      value={activePassengerDepartureId}
+                                      onChange={(e) =>
+                                        setActivePassengerDepartureId(
+                                          e.target.value,
+                                        )
+                                      }
+                                      disabled={submitting}
+                                      className="rounded-2xl border bg-white/90 px-3 py-2 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70"
+                                    >
+                                      <option value="CLEAR">
+                                        Sin salida asignada
+                                      </option>
+                                      {sortedDepartures.map((dep) => (
+                                        <option
+                                          key={dep.id_travel_group_departure}
+                                          value={
+                                            dep.public_id ||
+                                            dep.id_travel_group_departure
+                                          }
+                                        >
+                                          {dep.name} ·{" "}
+                                          {formatDate(dep.departure_date)}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
                                 )}
-                              </button>
+                                <div className="space-y-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setShowPassengerInternalNote(
+                                        (prev) => !prev,
+                                      )
+                                    }
+                                    className={`${pillClass(
+                                      showPassengerInternalNote,
+                                      "sky",
+                                    )} inline-flex items-center gap-2`}
+                                  >
+                                    Nota interna (opcional)
+                                  </button>
+                                  <CollapsiblePanel
+                                    open={showPassengerInternalNote}
+                                    className="rounded-2xl border border-sky-300/70 bg-white p-3 dark:border-sky-600/30 dark:bg-sky-950/10"
+                                  >
+                                    <label className="flex flex-col gap-1 text-sm">
+                                      <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
+                                        Nota interna
+                                      </span>
+                                      <textarea
+                                        value={activePassengerNote}
+                                        onChange={(e) =>
+                                          setActivePassengerNote(e.target.value)
+                                        }
+                                        rows={2}
+                                        disabled={submitting}
+                                        placeholder="Observaciones de este pasajero dentro de la grupal..."
+                                        className={FIELD_TEXTAREA_CLASS}
+                                      />
+                                    </label>
+                                  </CollapsiblePanel>
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="submit"
+                                  disabled={submitting}
+                                  className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600/40 dark:bg-sky-950/20 dark:text-sky-200"
+                                >
+                                  {submitting ? (
+                                    <Spinner label="Guardando..." />
+                                  ) : (
+                                    "Guardar datos personales"
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={submitting}
+                                  onClick={() =>
+                                    void handleDeletePassenger(activePassenger)
+                                  }
+                                  className="rounded-full border border-rose-300 bg-rose-100/90 px-4 py-2 text-sm font-semibold text-rose-800 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-500/70 dark:bg-rose-900/15 dark:text-rose-200"
+                                >
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    strokeWidth={1.5}
+                                    stroke="currentColor"
+                                    className="size-5"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                                    />
+                                  </svg>
+                                </button>
+                              </div>
                             </>
                           )}
                         </form>
@@ -4785,46 +4721,43 @@ export default function GroupDetailPage() {
         {showGroupPanels ? (
           <>
             <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
-              Formulario de servicios
+              Servicios de la grupal
             </p>
             <section
               id="panel-servicios"
-              className="rounded-3xl border border-sky-200/80 bg-white p-5 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-600/30 dark:bg-sky-950/10"
+              className="overflow-auto rounded-3xl border border-sky-200/80 bg-white shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-600/30 dark:bg-sky-950/10"
             >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                    Servicios de la grupal
-                  </h2>
-                  <p className="text-xs text-slate-700 dark:text-slate-300">
-                    {editingInventoryId
-                      ? "Edición de servicio activa."
-                      : "Agregá y administrá servicios por salida o generales."}
-                  </p>
-                </div>
-                <ToggleIconButton
-                  open={showInventoryForm}
-                  onClick={() => {
-                    setShowInventoryForm((prev) => !prev);
-                    if (showInventoryForm) {
-                      setEditingInventoryId(null);
-                      setInventoryDraft(
-                        defaultInventoryDraft(undefined, {
-                          defaultTransferFeePct,
-                          operators: operatorOptions,
-                        }),
-                      );
-                    }
-                  }}
-                  label="formulario de servicios"
-                />
-              </div>
+              <CollapsibleSectionHeader
+                open={showInventoryForm}
+                onToggle={() => {
+                  setShowInventoryForm((prev) => !prev);
+                  if (showInventoryForm) {
+                    setEditingInventoryId(null);
+                    setShowInventoryInternalNote(false);
+                    setInventoryDraft(
+                      defaultInventoryDraft(undefined, {
+                        defaultTransferFeePct,
+                        operators: operatorOptions,
+                      }),
+                    );
+                  }
+                }}
+                title="Servicios"
+                subtitle={
+                  editingInventoryId
+                    ? "Edición de servicio activa."
+                    : "Agregá y administrá servicios por salida o generales."
+                }
+              />
               {serviceOptionsError ? (
-                <p className="mt-3 rounded-2xl border border-amber-300/80 bg-amber-100/85 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/70 dark:bg-amber-900/15 dark:text-amber-200">
+                <p className="mx-5 mt-3 rounded-2xl border border-amber-300/80 bg-amber-100/85 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/70 dark:bg-amber-900/15 dark:text-amber-200 md:mx-6">
                   {serviceOptionsError}
                 </p>
               ) : null}
-              <CollapsiblePanel open={showInventoryForm} className="mt-3">
+              <CollapsiblePanel
+                open={showInventoryForm}
+                className="px-5 pb-5 pt-4 md:px-6"
+              >
                 <form
                   onSubmit={handleSaveInventory}
                   className="space-y-4 rounded-2xl border border-sky-300/70 bg-white p-4 dark:border-sky-600/30 dark:bg-sky-950/10"
@@ -4834,98 +4767,117 @@ export default function GroupDetailPage() {
                       Datos del servicio
                     </p>
                     <p className="text-xs text-slate-600 dark:text-slate-400">
-                      Cargá inventario con configuración de tipos, operadores y
-                      moneda.
+                      Cargá inventario con tipo, nombre, operador y precios.
                     </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <label className="flex flex-col gap-1 text-sm">
-                      Tipo de servicio (configuración)
-                      <select
-                        value={inventoryDraft.service_type}
-                        onChange={(e) => {
-                          const next = e.target.value;
-                          const selected = serviceTypeOptions.find(
-                            (item) => item.code === next,
-                          );
-                          setInventoryDraft((prev) => ({
-                            ...prev,
-                            service_type: next,
-                            inventory_type:
-                              selected?.name?.trim() || prev.inventory_type,
-                          }));
-                        }}
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                      >
-                        <option value="">Seleccionar tipo</option>
-                        {serviceTypeOptions.map((option) => (
-                          <option
-                            key={option.id_service_type}
-                            value={option.code}
-                          >
-                            {option.name} ({option.code})
-                          </option>
-                        ))}
-                        {inventoryDraft.service_type &&
-                        !serviceTypeOptions.some(
-                          (item) => item.code === inventoryDraft.service_type,
-                        ) ? (
-                          <option value={inventoryDraft.service_type}>
-                            {inventoryDraft.service_type} (no listado)
-                          </option>
-                        ) : null}
-                      </select>
-                    </label>
-                    <label className="flex flex-col gap-1 text-sm md:col-span-2">
-                      Nombre / etiqueta
-                      <input
-                        value={inventoryDraft.label}
-                        onChange={(e) =>
-                          setInventoryDraft((prev) => ({
-                            ...prev,
-                            label: e.target.value,
-                          }))
-                        }
-                        placeholder="Ej: Bloqueo hotel Río / Aéreo AR1234"
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                      />
-                    </label>
-                    {!isSingleDepartureMode ? (
-                      <label className="flex flex-col gap-1 text-sm md:col-span-2">
-                        Salida asociada (opcional)
-                        <select
-                          value={inventoryDraft.departure_id}
-                          onChange={(e) =>
-                            setInventoryDraft((prev) => ({
-                              ...prev,
-                              departure_id: e.target.value,
-                            }))
-                          }
-                          disabled={submitting}
-                          className={FIELD_INPUT_CLASS}
-                        >
-                          <option value="">Sin salida específica</option>
-                          {sortedDepartures.map((dep) => (
-                            <option
-                              key={dep.id_travel_group_departure}
-                              value={
-                                dep.public_id || dep.id_travel_group_departure
-                              }
-                            >
-                              {dep.name} · {formatDate(dep.departure_date)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : null}
                   </div>
 
                   <div className="rounded-2xl border border-sky-300/70 bg-white p-3 dark:border-sky-600/30 dark:bg-sky-950/10">
                     <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
-                      Operador y moneda
+                      Servicio
+                    </p>
+                    <div
+                      className={`mt-3 grid grid-cols-1 gap-3 ${
+                        isSingleDepartureMode
+                          ? "md:grid-cols-2"
+                          : "lg:grid-cols-3"
+                      }`}
+                    >
+                      <label className="flex flex-col gap-1 text-sm">
+                        Tipo de servicio
+                        <select
+                          value={inventoryDraft.service_type}
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            const selected = serviceTypeOptions.find(
+                              (item) => item.code === next,
+                            );
+                            setInventoryDraft((prev) => ({
+                              ...prev,
+                              service_type: next,
+                              inventory_type:
+                                selected?.name?.trim() || prev.inventory_type,
+                            }));
+                          }}
+                          disabled={submitting}
+                          className={FIELD_INPUT_CLASS}
+                        >
+                          <option value="">Seleccionar tipo</option>
+                          {serviceTypeOptions.map((option) => (
+                            <option
+                              key={option.id_service_type}
+                              value={option.code}
+                            >
+                              {option.name}
+                            </option>
+                          ))}
+                          {inventoryDraft.service_type &&
+                          !serviceTypeOptions.some(
+                            (item) => item.code === inventoryDraft.service_type,
+                          ) ? (
+                            <option value={inventoryDraft.service_type}>
+                              {inventoryDraft.inventory_type?.trim() ||
+                                "Tipo guardado (no disponible)"}
+                            </option>
+                          ) : null}
+                        </select>
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm">
+                        Nombre / etiqueta
+                        <input
+                          value={inventoryDraft.label}
+                          onChange={(e) =>
+                            setInventoryDraft((prev) => ({
+                              ...prev,
+                              label: e.target.value,
+                            }))
+                          }
+                          placeholder="Ej: Bloqueo hotel Río / Aéreo AR1234"
+                          disabled={submitting}
+                          className={FIELD_INPUT_CLASS}
+                        />
+                      </label>
+                      {!isSingleDepartureMode ? (
+                        <label className="flex flex-col gap-1 text-sm">
+                          Salida activa
+                          <select
+                            value={inventoryDraft.departure_id}
+                            onChange={(e) =>
+                              setInventoryDraft((prev) => ({
+                                ...prev,
+                                departure_id: e.target.value,
+                              }))
+                            }
+                            disabled={submitting || activeDepartureId != null}
+                            className={FIELD_INPUT_CLASS}
+                          >
+                            {activeDeparture ? (
+                              <option
+                                value={
+                                  activeDeparture.public_id ||
+                                  activeDeparture.id_travel_group_departure
+                                }
+                              >
+                                {activeDeparture.name} ·{" "}
+                                {formatDate(activeDeparture.departure_date)}
+                              </option>
+                            ) : (
+                              <option value="">
+                                Seleccioná una salida desde la barra superior
+                              </option>
+                            )}
+                          </select>
+                          <span className={FIELD_HINT_CLASS}>
+                            Los servicios nuevos se guardan sobre la salida
+                            activa.
+                          </span>
+                        </label>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-sky-300/70 bg-white p-3 dark:border-sky-600/30 dark:bg-sky-950/10">
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
+                      Operador
                     </p>
                     <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                       <label className="flex flex-col gap-1 text-sm">
@@ -4962,6 +4914,48 @@ export default function GroupDetailPage() {
                         </select>
                       </label>
                       <label className="flex flex-col gap-1 text-sm">
+                        Cupos comprados
+                        <input
+                          value={inventoryDraft.total_qty}
+                          onChange={(e) =>
+                            setInventoryDraft((prev) => ({
+                              ...prev,
+                              total_qty: e.target.value,
+                            }))
+                          }
+                          inputMode="numeric"
+                          disabled={submitting}
+                          className={FIELD_INPUT_CLASS}
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm">
+                        Localizador / referencia (opcional)
+                        <input
+                          value={inventoryDraft.locator}
+                          onChange={(e) =>
+                            setInventoryDraft((prev) => ({
+                              ...prev,
+                              locator: e.target.value,
+                            }))
+                          }
+                          disabled={submitting}
+                          placeholder="Ej: ABC123 / LOC-7788"
+                          className={FIELD_INPUT_CLASS}
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-sky-300/70 bg-white p-3 dark:border-sky-600/30 dark:bg-sky-950/10">
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
+                      Precios e impuestos
+                    </p>
+                    <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+                      Modo de venta: por unidad.
+                    </p>
+
+                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <label className="flex flex-col gap-1 text-sm">
                         Moneda
                         <select
                           value={inventoryDraft.currency}
@@ -4981,51 +4975,6 @@ export default function GroupDetailPage() {
                           ))}
                         </select>
                       </label>
-                      <label className="flex flex-col gap-1 text-sm md:col-span-2">
-                        Localizador / referencia (opcional)
-                        <input
-                          value={inventoryDraft.locator}
-                          onChange={(e) =>
-                            setInventoryDraft((prev) => ({
-                              ...prev,
-                              locator: e.target.value,
-                            }))
-                          }
-                          disabled={submitting}
-                          placeholder="Ej: ABC123 / LOC-7788"
-                          className={FIELD_INPUT_CLASS}
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-3">
-                    <label className="flex flex-col gap-1 text-sm">
-                      Cupos comprados
-                      <input
-                        value={inventoryDraft.total_qty}
-                        onChange={(e) =>
-                          setInventoryDraft((prev) => ({
-                            ...prev,
-                            total_qty: e.target.value,
-                          }))
-                        }
-                        inputMode="numeric"
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                      />
-                    </label>
-                  </div>
-
-                  <div className="rounded-2xl border border-sky-300/70 bg-white p-3 dark:border-sky-600/30 dark:bg-sky-950/10">
-                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
-                      Precios e impuestos (estimación)
-                    </p>
-                    <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
-                      Modo de venta: por unidad.
-                    </p>
-
-                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                       <label className="flex flex-col gap-1 text-sm">
                         Costo unitario
                         <input
@@ -5122,7 +5071,7 @@ export default function GroupDetailPage() {
                           className={FIELD_INPUT_CLASS}
                         />
                       </label>
-                      <label className="flex flex-col gap-1 text-sm md:col-span-2">
+                      <label className="flex flex-col gap-1 text-sm">
                         Costo de transferencia (%)
                         <input
                           value={inventoryDraft.transfer_fee_pct}
@@ -5185,21 +5134,42 @@ export default function GroupDetailPage() {
                     </div>
                   </div>
 
-                  <label className="flex flex-col gap-1 text-sm">
-                    Nota interna (opcional)
-                    <textarea
-                      value={inventoryDraft.note}
-                      onChange={(e) =>
-                        setInventoryDraft((prev) => ({
-                          ...prev,
-                          note: e.target.value,
-                        }))
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowInventoryInternalNote((prev) => !prev)
                       }
-                      rows={2}
-                      disabled={submitting}
-                      className={FIELD_TEXTAREA_CLASS}
-                    />
-                  </label>
+                      className={`${pillClass(
+                        showInventoryInternalNote,
+                        "sky",
+                      )} inline-flex items-center gap-2`}
+                    >
+                      Nota interna (opcional)
+                    </button>
+                    <CollapsiblePanel
+                      open={showInventoryInternalNote}
+                      className="rounded-2xl border border-sky-300/70 bg-white p-3 dark:border-sky-600/30 dark:bg-sky-950/10"
+                    >
+                      <label className="flex flex-col gap-1 text-sm">
+                        <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
+                          Nota interna
+                        </span>
+                        <textarea
+                          value={inventoryDraft.note}
+                          onChange={(e) =>
+                            setInventoryDraft((prev) => ({
+                              ...prev,
+                              note: e.target.value,
+                            }))
+                          }
+                          rows={2}
+                          disabled={submitting}
+                          className={FIELD_TEXTAREA_CLASS}
+                        />
+                      </label>
+                    </CollapsiblePanel>
+                  </div>
 
                   <button
                     type="submit"
@@ -5346,11 +5316,11 @@ export default function GroupDetailPage() {
                 <p className={FLAT_NOTE_CLASS}>
                   Seleccioná un pasajero activo en la tabla para continuar.
                 </p>
-              ) : !selectedCollectBookingId || !selectedCollectClientId ? (
+              ) : !selectedCollectClientId ? (
                 <p className={FLAT_NOTE_CLASS}>
                   El pasajero activo no tiene contexto financiero válido.
                 </p>
-              ) : !collectBooking ? (
+              ) : !collectContext ? (
                 <p className={FLAT_NOTE_CLASS}>
                   {collectLoading
                     ? "Cargando datos de cobro..."
@@ -5384,7 +5354,7 @@ export default function GroupDetailPage() {
                     ) : (
                       <GroupClientPaymentForm
                         token={token}
-                        booking={collectBooking}
+                        context={collectContext}
                         groupId={groupId}
                         groupPassengerId={
                           selectedCollectPassenger.id_travel_group_passenger
@@ -5402,7 +5372,7 @@ export default function GroupDetailPage() {
                     )}
                     <GroupClientPaymentList
                       payments={collectClientPayments}
-                      booking={collectBooking}
+                      context={collectContext}
                       groupId={groupId}
                       role={financeRole}
                       loading={collectLoading}
@@ -5435,7 +5405,13 @@ export default function GroupDetailPage() {
                         }
                         isFormVisible={collectReceiptFormVisible}
                         setIsFormVisible={setCollectReceiptFormVisible}
-                        bookingId={selectedCollectBookingId || undefined}
+                        contextId={
+                          Number(
+                            collectContext?.id_context ??
+                              collectContext?.id_booking ??
+                              0,
+                          ) || undefined
+                        }
                         allowAgency={false}
                         initialServiceIds={
                           editingCollectReceipt?.serviceIds || []
@@ -5488,12 +5464,16 @@ export default function GroupDetailPage() {
                         initialCounterCurrency={
                           editingCollectReceipt?.counter_currency ?? null
                         }
-                        initialClientIds={
-                          editingCollectReceipt?.clientIds?.length
-                            ? editingCollectReceipt.clientIds
-                            : [Number(selectedCollectClientId)]
+                        initialClientIds={[Number(selectedCollectClientId)]}
+                        lockClientSelection={true}
+                        lockedClientLabel={
+                          selectedCollectPassenger.client
+                            ? `${selectedCollectPassenger.client.first_name} ${selectedCollectPassenger.client.last_name}`.trim()
+                            : selectedCollectClientId
+                              ? `Cliente ${selectedCollectClientId}`
+                              : "Pasajero activo"
                         }
-                        loadServicesForBooking={loadCollectServicesForBooking}
+                        loadServicesForContext={loadCollectServicesForContext}
                         onSubmit={async (payload) => {
                           const normalizedPayload = {
                             ...payload,
@@ -5549,9 +5529,9 @@ export default function GroupDetailPage() {
                       <GroupReceiptList
                         token={token}
                         receipts={collectReceipts}
-                        booking={collectBooking}
+                        context={collectContext}
                         groupId={groupId}
-                        services={collectBookingServices}
+                        services={collectContextServices}
                         role={financeRole}
                         onReceiptDeleted={() => {
                           void refreshCollectData();
@@ -5576,38 +5556,11 @@ export default function GroupDetailPage() {
         {showPagosPanels ? (
           <section id="panel-finanzas" className="">
             <div className="mt-4 space-y-4">
-              {financeReservationOptions.length > 1 ? (
-                <div className="space-y-2">
-                  <p className="text-sm">Salida</p>
-                  <div className="flex flex-wrap gap-2">
-                    {financeReservationOptions.map((option) => {
-                      const active = option.key === paymentsReservationKey;
-                      return (
-                        <button
-                          key={`payments-scope-toggle-${option.key}`}
-                          type="button"
-                          onClick={() => setPaymentsReservationKey(option.key)}
-                          className={pillClass(active, "sky")}
-                          aria-pressed={active}
-                        >
-                          {option.label} · Pax: {option.passengerCount}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
-
-              {financeReservationOptions.length === 0 ? (
-                <p className={FLAT_NOTE_CLASS}>
-                  Todavía no hay salidas disponibles para operar pagos a
-                  operador.
-                </p>
-              ) : !selectedPaymentsReservation ? (
+              {!selectedPaymentsScope ? (
                 <p className={FLAT_NOTE_CLASS}>
                   Seleccioná una salida para continuar.
                 </p>
-              ) : !paymentsBooking ? (
+              ) : !paymentsContext ? (
                 <p className={FLAT_NOTE_CLASS}>
                   {paymentsLoading
                     ? "Cargando datos de pagos..."
@@ -5615,14 +5568,14 @@ export default function GroupDetailPage() {
                 </p>
               ) : (
                 <div className="space-y-5">
-                  {financeReservationOptions.length > 1 ? (
-                    <div className="w-fit rounded-2xl border border-emerald-300/80 bg-emerald-50/30 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-500/70 dark:bg-emerald-900/20 dark:text-emerald-300">
-                      Salida activa:{" "}
-                      <span className="font-semibold text-emerald-900 dark:text-emerald-100">
-                        {selectedPaymentsReservation.label}
-                      </span>
-                    </div>
-                  ) : null}
+                  <div className="w-fit rounded-2xl border border-emerald-300/80 bg-emerald-50/30 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-500/70 dark:bg-emerald-900/20 dark:text-emerald-300">
+                    {selectedPaymentsScope.departureId != null
+                      ? "Salida activa: "
+                      : "Contexto activo: "}
+                    <span className="font-semibold text-emerald-900 dark:text-emerald-100">
+                      {selectedPaymentsScope.label}
+                    </span>
+                  </div>
                   {paymentsLoadingError ? (
                     <p className={FLAT_WARN_CLASS}>{paymentsLoadingError}</p>
                   ) : null}
@@ -5640,12 +5593,12 @@ export default function GroupDetailPage() {
                     ) : (
                       <GroupOperatorPaymentForm
                         token={token}
-                        booking={paymentsBooking}
+                        context={paymentsContext}
                         groupId={groupId}
                         groupDepartureId={
-                          selectedPaymentsReservation.departureId ?? null
+                          selectedPaymentsScope.departureId ?? null
                         }
-                        availableServices={paymentsBookingServices}
+                        availableServices={paymentsContextServices}
                         operators={operatorOptions as unknown as Operator[]}
                         onCreated={() => {
                           setFinanceOperatorPaymentsReloadKey(
@@ -5658,7 +5611,7 @@ export default function GroupDetailPage() {
                     <GroupOperatorPaymentList
                       token={token}
                       groupId={groupId}
-                      scopeKey={selectedPaymentsReservation.key}
+                      scopeKey={selectedPaymentsScope.key}
                       reloadKey={financeOperatorPaymentsReloadKey}
                     />
                   </section>
@@ -5675,12 +5628,12 @@ export default function GroupDetailPage() {
                     ) : (
                       <GroupOperatorDueForm
                         token={token}
-                        booking={paymentsBooking}
+                        context={paymentsContext}
                         groupId={groupId}
                         groupDepartureId={
-                          selectedPaymentsReservation.departureId ?? null
+                          selectedPaymentsScope.departureId ?? null
                         }
-                        availableServices={paymentsBookingServices}
+                        availableServices={paymentsContextServices}
                         onCreated={() => {
                           void refreshPaymentsData();
                         }}
@@ -5688,7 +5641,7 @@ export default function GroupDetailPage() {
                     )}
                     <GroupOperatorDueList
                       dues={paymentsOperatorDues}
-                      booking={paymentsBooking}
+                      context={paymentsContext}
                       groupId={groupId}
                       role={financeRole}
                       operators={operatorOptions as unknown as Operator[]}
@@ -5719,11 +5672,11 @@ export default function GroupDetailPage() {
                   Seleccioná un pasajero activo en la tabla para ver
                   facturación.
                 </p>
-              ) : !selectedFinanceReservation ? (
+              ) : !selectedFinanceScope ? (
                 <p className={FLAT_NOTE_CLASS}>
                   No encontramos el contexto financiero del pasajero activo.
                 </p>
-              ) : !financeBooking ? (
+              ) : !financeContext ? (
                 <p className={FLAT_NOTE_CLASS}>
                   {financeLoading
                     ? "Cargando facturación..."
@@ -5781,7 +5734,7 @@ export default function GroupDetailPage() {
                         ) : (
                           <GroupInvoiceForm
                             formData={financeInvoiceFormData}
-                            availableServices={financeBookingServices}
+                            availableServices={financeContextServices}
                             handleChange={handleFinanceInvoiceChange}
                             handleSubmit={handleFinanceInvoiceSubmit}
                             isFormVisible={financeInvoiceFormVisible}
@@ -5790,6 +5743,14 @@ export default function GroupDetailPage() {
                             isSubmitting={financeInvoiceSubmitting}
                             token={token}
                             collapsible
+                            lockClientSelection={true}
+                            lockedClientLabel={
+                              selectedFinanceInvoicePassenger.client
+                                ? `${selectedFinanceInvoicePassenger.client.first_name} ${selectedFinanceInvoicePassenger.client.last_name}`.trim()
+                                : selectedFinanceInvoiceClientId
+                                  ? `Cliente ${selectedFinanceInvoiceClientId}`
+                                  : "Pasajero activo"
+                            }
                           />
                         )}
                       </>

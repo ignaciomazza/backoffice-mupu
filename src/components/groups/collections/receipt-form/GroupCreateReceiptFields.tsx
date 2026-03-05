@@ -45,6 +45,8 @@ export default function GroupCreateReceiptFields(props: {
 
   clientsCount: number;
   clientIds: (number | null)[];
+  lockClientSelection?: boolean;
+  lockedClientLabel?: string | null;
   onIncClient: () => void;
   onDecClient: () => void;
   setClientAt: (index: number, client: Client | null) => void;
@@ -128,6 +130,8 @@ export default function GroupCreateReceiptFields(props: {
 
     clientsCount,
     clientIds,
+    lockClientSelection = false,
+    lockedClientLabel,
     onIncClient,
     onDecClient,
     setClientAt,
@@ -205,45 +209,59 @@ export default function GroupCreateReceiptFields(props: {
   return (
     <>
       <Section
-        title="Pasajeros"
-        desc="Podés adjudicar el recibo a uno o varios pasajeros (opcional)."
+        title={lockClientSelection ? "Pasajero" : "Pasajeros"}
+        desc={
+          lockClientSelection
+            ? "El recibo se emite sobre el pasajero activo."
+            : "Podés adjudicar el recibo a uno o varios pasajeros (opcional)."
+        }
       >
-        <div className="flex items-center gap-2 pl-1 md:col-span-2">
-          <button
-            type="button"
-            onClick={onDecClient}
-            className="rounded-full border border-sky-300/80 bg-sky-100/80 px-2 py-1 text-[13px] font-semibold text-sky-900 shadow-sm shadow-sky-100/60 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-700 dark:bg-sky-900/25 dark:text-sky-100 md:text-sm"
-            disabled={clientsCount <= 1}
-          >
-            −
-          </button>
-          <span className="rounded-full border border-sky-200/70 bg-sky-50/45 px-3 py-1 text-[13px] font-medium text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-200 md:text-sm">
-            {clientsCount}
-          </span>
-          <button
-            type="button"
-            onClick={onIncClient}
-            className="rounded-full border border-sky-300/80 bg-sky-100/80 px-2 py-1 text-[13px] font-semibold text-sky-900 shadow-sm shadow-sky-100/60 transition active:scale-[0.98] dark:border-sky-700 dark:bg-sky-900/25 dark:text-sky-100 md:text-sm"
-          >
-            +
-          </button>
-        </div>
+        {lockClientSelection ? (
+          <div className="rounded-2xl border border-emerald-300/70 bg-emerald-50/35 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-500/70 dark:bg-emerald-900/20 dark:text-emerald-100 md:col-span-2">
+            <span className="font-semibold">
+              {lockedClientLabel || "Pasajero activo"}
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 pl-1 md:col-span-2">
+            <button
+              type="button"
+              onClick={onDecClient}
+              className="rounded-full border border-sky-300/80 bg-sky-100/80 px-2 py-1 text-[13px] font-semibold text-sky-900 shadow-sm shadow-sky-100/60 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-700 dark:bg-sky-900/25 dark:text-sky-100 md:text-sm"
+              disabled={clientsCount <= 1}
+            >
+              −
+            </button>
+            <span className="rounded-full border border-sky-200/70 bg-sky-50/45 px-3 py-1 text-[13px] font-medium text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-200 md:text-sm">
+              {clientsCount}
+            </span>
+            <button
+              type="button"
+              onClick={onIncClient}
+              className="rounded-full border border-sky-300/80 bg-sky-100/80 px-2 py-1 text-[13px] font-semibold text-sky-900 shadow-sm shadow-sky-100/60 transition active:scale-[0.98] dark:border-sky-700 dark:bg-sky-900/25 dark:text-sky-100 md:text-sm"
+            >
+              +
+            </button>
+          </div>
+        )}
 
-        <div className="space-y-3 md:col-span-2">
-          {Array.from({ length: clientsCount }).map((_, idx) => (
-            <div key={idx} className="pl-1">
-              <ClientPicker
-                token={token}
-                label={`Pax ${idx + 1}`}
-                placeholder="Buscar por Nº interno, DNI, Pasaporte, CUIT o nombre..."
-                valueId={clientIds[idx] ?? null}
-                excludeIds={excludeForIndex(idx)}
-                onSelect={(c) => setClientAt(idx, c)}
-                onClear={() => setClientAt(idx, null)}
-              />
-            </div>
-          ))}
-        </div>
+        {!lockClientSelection ? (
+          <div className="space-y-3 md:col-span-2">
+            {Array.from({ length: clientsCount }).map((_, idx) => (
+              <div key={idx} className="pl-1">
+                <ClientPicker
+                  token={token}
+                  label={`Pax ${idx + 1}`}
+                  placeholder="Buscar por Nº interno, DNI, Pasaporte, CUIT o nombre..."
+                  valueId={clientIds[idx] ?? null}
+                  excludeIds={excludeForIndex(idx)}
+                  onSelect={(c) => setClientAt(idx, c)}
+                  onClear={() => setClientAt(idx, null)}
+                />
+              </div>
+            ))}
+          </div>
+        ) : null}
       </Section>
 
       <Section
@@ -856,7 +874,7 @@ export default function GroupCreateReceiptFields(props: {
                 id="concept"
                 value={concept}
                 onChange={(e) => setConcept(e.target.value)}
-                placeholder="Ej.: Pago parcial reserva Nº 1024"
+                placeholder="Ej.: Pago parcial contexto Nº 1024"
                 className={inputBase}
               />
             </Field>

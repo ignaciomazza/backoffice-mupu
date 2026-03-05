@@ -2,7 +2,12 @@
 "use client";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMemo, useState, useEffect, useRef, type ReactNode } from "react";
-import { Booking, Service } from "@/types";
+import { Service } from "@/types";
+import {
+  resolveGroupFinanceContextAgencyId,
+  resolveGroupFinanceContextId,
+  type GroupFinanceContext,
+} from "@/components/groups/finance/contextTypes";
 import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
 import { authFetch } from "@/utils/authFetch";
@@ -12,7 +17,7 @@ import { formatMoneyInput, shouldPreferDotDecimal } from "@/utils/moneyInput";
 
 type Props = {
   token: string | null;
-  booking: Booking;
+  context: GroupFinanceContext;
   groupId?: string;
   groupPassengerId?: number | null;
   groupDepartureId?: number | null;
@@ -94,33 +99,32 @@ const formatAgencyNumber = (value: number | null | undefined): string => {
 
 export default function GroupOperatorDueForm({
   token,
-  booking,
+  context,
   groupId,
   groupPassengerId = null,
   groupDepartureId = null,
   availableServices,
   onCreated,
 }: Props) {
+  const contextId = resolveGroupFinanceContextId(context);
+  const contextAgencyId = resolveGroupFinanceContextAgencyId(context);
+
   const [isFormVisible, setIsFormVisible] = useState(false);
 
-  // === Servicios de esta reserva (embebidos o provistos) ===
-  const servicesFromBooking = useMemo<Service[]>(
+  // === Servicios de este contexto (embebidos o provistos) ===
+  const servicesFromContext = useMemo<Service[]>(
     () =>
-      (booking.services && booking.services.length > 0
-        ? booking.services
-        : (availableServices || []).filter(
-            (s) =>
-              (s as unknown as { booking_id?: number })?.booking_id ===
-              booking.id_booking,
-          )) ?? [],
-    [booking.services, availableServices, booking.id_booking],
+      (context.services && context.services.length > 0
+        ? context.services
+        : availableServices || []) ?? [],
+    [context.services, availableServices],
   );
 
   // === Selección de servicio (única) estilo Receipt ===
   const [serviceId, setServiceId] = useState<number | null>(null);
   const selectedService = useMemo(
-    () => servicesFromBooking.find((s) => s.id_service === serviceId) || null,
-    [servicesFromBooking, serviceId],
+    () => servicesFromContext.find((s) => s.id_service === serviceId) || null,
+    [servicesFromContext, serviceId],
   );
 
   const toggleService = (svc: Service) =>
@@ -163,11 +167,11 @@ export default function GroupOperatorDueForm({
         selectedService.type ? `· ${selectedService.type}` : "",
         selectedService.destination ? `· ${selectedService.destination}` : "",
         `· Servicio Nº ${formatAgencyNumber(selectedService.agency_service_id)}`,
-        `· Grupal Nº ${formatAgencyNumber(booking.agency_booking_id)}`,
+        `· Grupal Nº ${formatAgencyNumber(contextAgencyId)}`,
       ].filter(Boolean);
       setConcept(parts.join(" "));
     }
-  }, [selectedService, booking.id_booking, booking.agency_booking_id, concept]);
+  }, [selectedService, contextAgencyId, concept]);
 
   // === Helpers UI ===
   const inputBase =
@@ -276,7 +280,7 @@ export default function GroupOperatorDueForm({
         ? `/api/groups/${encodeURIComponent(groupId)}/finance/operator-dues`
         : "/api/operator-dues";
       if (!groupId) {
-        (payload as { bookingId?: number }).bookingId = booking.id_booking;
+        if (contextId) (payload as { bookingId?: number }).bookingId = contextId;
       }
 
       const res = await authFetch(
@@ -370,7 +374,7 @@ export default function GroupOperatorDueForm({
                 {isFormVisible ? "Vencimientos de operador" : "Cargar vencimiento"}
               </p>
               <p className="text-[11px] text-slate-600 dark:text-slate-400 md:text-xs">
-                Grupal Nº {formatAgencyNumber(booking.agency_booking_id)}
+                Grupal Nº {formatAgencyNumber(contextAgencyId)}
               </p>
             </div>
           </div>
@@ -393,13 +397,13 @@ export default function GroupOperatorDueForm({
               desc="Seleccioná el servicio asociado al vencimiento."
             >
               <div className="md:col-span-2">
-                {servicesFromBooking.length === 0 ? (
+                {servicesFromContext.length === 0 ? (
                   <div className="rounded-xl border border-sky-300/70 bg-white p-4 text-[13px] text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300 md:text-sm">
                     Esta grupal no tiene servicios cargados.
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    {servicesFromBooking.map((svc) => {
+                    {servicesFromContext.map((svc) => {
                       const isActive = serviceId === svc.id_service;
                       return (
                         <button

@@ -145,19 +145,8 @@ export default async function handler(
         },
         public_id: getDeparturePublicId(row),
       }));
-
-      if (!partialBookingLink) {
-        return res.status(200).json(items);
-      }
-
-      return res.status(200).json({
-        items,
-        code: "GROUP_BOOKING_LINK_PARTIAL",
-        warning:
-          "Las salidas se listan sin conteo de reservas porque falta la migración de vinculación con Booking.",
-        solution:
-          "Aplicá la migración pendiente de reservas para habilitar ese conteo.",
-      });
+      void partialBookingLink;
+      return res.status(200).json(items);
     } catch (error) {
       console.error("[groups][departures][GET]", error);
       return groupApiError(res, 500, "No pudimos listar las salidas de la grupal.", {
@@ -195,7 +184,7 @@ export default async function handler(
       });
     }
     const code = parseOptionalString(body.code, 80);
-    if (code === undefined) {
+    if (body.code !== undefined && code === undefined) {
       return groupApiError(res, 400, "El código de la salida es inválido.", {
         code: "GROUP_DEPARTURE_CODE_INVALID",
         solution: "Usá un texto de hasta 80 caracteres o dejá el campo vacío.",
@@ -302,13 +291,14 @@ export default async function handler(
           auth.id_agency,
           "travel_group_departure",
         );
+        const generatedCode = code ?? `SAL-${agencyTravelGroupDepartureId}`;
         return tx.travelGroupDeparture.create({
           data: {
             agency_travel_group_departure_id: agencyTravelGroupDepartureId,
             id_agency: auth.id_agency,
             travel_group_id: group.id_travel_group,
             name,
-            code,
+            code: generatedCode,
             status,
             departure_date: departureDate,
             return_date: returnDate,
@@ -377,14 +367,7 @@ export default async function handler(
         },
         public_id: getDeparturePublicId(createdFull),
       } as Record<string, unknown>;
-
-      if (partialBookingLink) {
-        payload.code = "GROUP_BOOKING_LINK_PARTIAL";
-        payload.warning =
-          "La salida se creó, pero el conteo de reservas todavía no está disponible en esta base.";
-        payload.solution =
-          "Aplicá la migración pendiente de reservas para habilitar ese conteo.";
-      }
+      void partialBookingLink;
 
       return res.status(201).json(payload);
     } catch (error) {

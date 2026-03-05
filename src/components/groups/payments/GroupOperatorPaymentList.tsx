@@ -14,7 +14,7 @@ type Props = {
   groupId?: string;
   scopeKey?: string;
   groupPassengerId?: number | null;
-  bookingId?: number; // listar pagos asociados a esta reserva
+  contextId?: number; // listar pagos asociados a este contexto
   operatorId?: number; // opcional: filtrar por operador
   className?: string;
   reloadKey?: number; // forzar refetch al cambiar
@@ -40,7 +40,7 @@ export default function GroupOperatorPaymentList({
   groupId,
   scopeKey,
   groupPassengerId,
-  bookingId,
+  contextId,
   operatorId,
   className,
   reloadKey,
@@ -67,9 +67,12 @@ export default function GroupOperatorPaymentList({
     qs.set("take", "24");
     qs.set("operatorOnly", "1");
     if (operatorId) qs.set("operatorId", String(operatorId));
-    if (bookingId) qs.set("bookingId", String(bookingId));
+    if (contextId) {
+      qs.set("contextId", String(contextId));
+      qs.set("bookingId", String(contextId));
+    }
     return qs.toString();
-  }, [bookingId, groupId, groupPassengerId, operatorId, scopeKey]);
+  }, [contextId, groupId, groupPassengerId, operatorId, scopeKey]);
 
   const fetchList = useCallback(async () => {
     if (!token) return;
@@ -104,7 +107,7 @@ export default function GroupOperatorPaymentList({
         return;
       }
 
-      // 🧰 Cambio: credentials: "omit" para evitar cookies
+      // credentials: "omit" para evitar mezclar cookies
       const res = await authFetch(
         `/api/investments?${queryString}`,
         { cache: "no-store", signal: controller.signal, credentials: "omit" },
@@ -112,7 +115,7 @@ export default function GroupOperatorPaymentList({
       );
 
       if (!res.ok) {
-        // Fallback por si tu back no soportara bookingId (lo filtramos client-side).
+        // Fallback por si el backend no soporta filtro por contexto.
         const onlyCategory = await authFetch(
           `/api/investments?take=24&operatorOnly=1${operatorId ? `&operatorId=${operatorId}` : ""}`,
           { cache: "no-store", signal: controller.signal, credentials: "omit" },
@@ -131,8 +134,10 @@ export default function GroupOperatorPaymentList({
           nextCursor: number | null;
         };
         if (myId !== reqIdRef.current) return;
-        const filtered = bookingId
-          ? items.filter((i) => i.booking_id === bookingId)
+        const filtered = contextId
+          ? items.filter(
+              (i) => (i.context_id ?? i.booking_id ?? null) === contextId,
+            )
           : items;
         setItems(filtered);
         setNextCursor(nextCursor ?? null);
@@ -157,7 +162,7 @@ export default function GroupOperatorPaymentList({
     } finally {
       if (!controller.signal.aborted) setLoadingList(false);
     }
-  }, [token, queryString, operatorId, bookingId, groupId]);
+  }, [token, queryString, operatorId, contextId, groupId]);
 
   // Carga inicial / cuando cambien dependencias
   useEffect(() => {
@@ -195,9 +200,11 @@ export default function GroupOperatorPaymentList({
         nextCursor: number | null;
       };
 
-      // Si el backend no filtra por bookingId, filtramos client-side
-      const filtered = bookingId
-        ? more.filter((i) => i.booking_id === bookingId)
+      // Si el backend no filtra por contextId, filtramos client-side
+      const filtered = contextId
+        ? more.filter(
+            (i) => (i.context_id ?? i.booking_id ?? null) === contextId,
+          )
         : more;
 
       setItems((prev) => [...prev, ...filtered]);
@@ -210,7 +217,7 @@ export default function GroupOperatorPaymentList({
     } finally {
       setLoadingMore(false);
     }
-  }, [token, nextCursor, loadingMore, queryString, bookingId, groupId]);
+  }, [token, nextCursor, loadingMore, queryString, contextId, groupId]);
 
   return (
     <div className={`space-y-7 ${className ?? ""}`}>
@@ -223,7 +230,7 @@ export default function GroupOperatorPaymentList({
           <div className="rounded-2xl border border-sky-300/80 bg-white p-5 text-center text-[13px] text-slate-700 shadow-sm shadow-slate-900/10 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300 md:text-sm">
             {groupId
               ? "No hay pagos cargados para esta salida."
-              : `No hay pagos cargados ${bookingId ? "para esta reserva." : "."}`}
+              : `No hay pagos cargados ${contextId ? "para este contexto." : "."}`}
           </div>
         ) : (
           <>

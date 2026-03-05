@@ -38,6 +38,7 @@ type OperatorPaymentRow = {
 };
 
 function buildOperatorPaymentItem(row: OperatorPaymentRow) {
+  const contextId = row.booking_id ?? null;
   return {
     id_investment: row.id_travel_group_operator_payment,
     agency_investment_id: row.agency_travel_group_operator_payment_id,
@@ -51,7 +52,20 @@ function buildOperatorPaymentItem(row: OperatorPaymentRow) {
         : new Date(row.created_at).toISOString(),
     paid_at: row.paid_at ? new Date(row.paid_at).toISOString() : null,
     operator_id: row.operator_id,
-    booking_id: row.booking_id ?? null,
+    context_id: contextId,
+    context: contextId
+      ? {
+          id_context: contextId,
+          agency_context_id: null,
+        }
+      : null,
+    booking_id: contextId,
+    booking: contextId
+      ? {
+          id_booking: contextId,
+          agency_booking_id: null,
+        }
+      : null,
     serviceIds: Array.isArray(row.service_refs) ? row.service_refs : [],
     payment_method: row.payment_method,
     account: row.account,

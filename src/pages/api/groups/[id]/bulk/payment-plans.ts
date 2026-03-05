@@ -13,6 +13,7 @@ import {
 } from "@/lib/groups/apiShared";
 import { parseTemplateInstallments } from "@/lib/groups/paymentTemplatesShared";
 import { groupApiError } from "@/lib/groups/apiErrors";
+import { decodeInventoryServiceId } from "@/lib/groups/inventoryServiceRefs";
 
 type InstallmentInput = {
   due_date?: unknown;
@@ -285,7 +286,7 @@ export default async function handler(
     },
     select: {
       id_travel_group_passenger: true,
-      booking_id: true,
+      travel_group_departure_id: true,
       client_id: true,
     },
   });
@@ -302,41 +303,20 @@ export default async function handler(
   }
 
   const validTargets = passengers.filter(
-    (p): p is { id_travel_group_passenger: number; booking_id: number; client_id: number } =>
-      typeof p.booking_id === "number" &&
-      p.booking_id > 0 &&
-      typeof p.client_id === "number" &&
-      p.client_id > 0,
+    (p): p is {
+      id_travel_group_passenger: number;
+      travel_group_departure_id: number | null;
+      client_id: number;
+    } => typeof p.client_id === "number" && p.client_id > 0,
   );
   if (validTargets.length === 0) {
     return groupApiError(
       res,
       400,
-      "Los pasajeros seleccionados no tienen reservas o clientes vinculados.",
+      "Los pasajeros seleccionados no tienen cliente vinculado para generar cuotas.",
       {
         code: "GROUP_PASSENGER_TARGET_INVALID",
-        solution: "Revisá que cada pasajero tenga reserva y cliente asignados.",
-      },
-    );
-  }
-
-  const bookingIds = Array.from(new Set(validTargets.map((t) => t.booking_id)));
-  const bookings = await prisma.booking.findMany({
-    where: {
-      id_booking: { in: bookingIds },
-      id_agency: auth.id_agency,
-      travel_group_id: group.id_travel_group,
-    },
-    select: { id_booking: true },
-  });
-  if (bookings.length !== bookingIds.length) {
-    return groupApiError(
-      res,
-      400,
-      "Algunas reservas vinculadas no son válidas para esta grupal.",
-      {
-        code: "GROUP_BOOKING_SCOPE_INVALID",
-        solution: "Refrescá la pantalla y revisá las reservas de los pasajeros seleccionados.",
+        solution: "Revisá que cada pasajero tenga un cliente asignado.",
       },
     );
   }
@@ -349,16 +329,51 @@ export default async function handler(
     ),
   );
   if (requestedServiceIds.length > 0) {
-    const services = await prisma.service.findMany({
-      where: {
-        id_agency: auth.id_agency,
-        id_service: { in: requestedServiceIds },
-        booking_id: { in: bookingIds },
-      },
-      select: { id_service: true },
+    const inventoryIdByServiceId = new Map<number, number>();
+    const regularServiceIds: number[] = [];
+
+    for (const serviceId of requestedServiceIds) {
+      const inventoryId = decodeInventoryServiceId(serviceId);
+      if (inventoryId) {
+        inventoryIdByServiceId.set(serviceId, inventoryId);
+      } else {
+        regularServiceIds.push(serviceId);
+      }
+    }
+
+    const inventoryIds = Array.from(new Set(inventoryIdByServiceId.values()));
+    const [services, inventories] = await Promise.all([
+      regularServiceIds.length > 0
+        ? prisma.service.findMany({
+            where: {
+              id_agency: auth.id_agency,
+              id_service: { in: regularServiceIds },
+            },
+            select: { id_service: true },
+          })
+        : Promise.resolve([]),
+      inventoryIds.length > 0
+        ? prisma.travelGroupInventory.findMany({
+            where: {
+              id_agency: auth.id_agency,
+              travel_group_id: group.id_travel_group,
+              id_travel_group_inventory: { in: inventoryIds },
+            },
+            select: { id_travel_group_inventory: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const regularServiceSet = new Set(services.map((s) => s.id_service));
+    const inventorySet = new Set(inventories.map((i) => i.id_travel_group_inventory));
+
+    const invalidRegular = regularServiceIds.filter((id) => !regularServiceSet.has(id));
+    const invalidInventory = requestedServiceIds.filter((serviceId) => {
+      const inventoryId = inventoryIdByServiceId.get(serviceId);
+      return inventoryId ? !inventorySet.has(inventoryId) : false;
     });
-    const serviceSet = new Set(services.map((s) => s.id_service));
-    const invalid = requestedServiceIds.filter((id) => !serviceSet.has(id));
+    const invalid = [...invalidRegular, ...invalidInventory];
+
     if (invalid.length > 0) {
       return groupApiError(
         res,
@@ -366,7 +381,7 @@ export default async function handler(
         `Hay servicios inválidos para esta grupal: ${invalid.join(", ")}`,
         {
           code: "GROUP_SERVICE_SCOPE_INVALID",
-          solution: "Verificá los servicios vinculados a las reservas seleccionadas.",
+          solution: "Verificá los servicios del contexto grupal seleccionado.",
         },
       );
     }
@@ -379,79 +394,44 @@ export default async function handler(
     await prisma.$transaction(async (tx) => {
       for (const passenger of validTargets) {
         if (replacePending) {
-          const pending = await tx.clientPayment.findMany({
+          const cancelled = await tx.travelGroupClientPayment.updateMany({
             where: {
               id_agency: auth.id_agency,
-              booking_id: passenger.booking_id,
-              client_id: passenger.client_id,
+              travel_group_id: group.id_travel_group,
+              travel_group_passenger_id: passenger.id_travel_group_passenger,
               status: "PENDIENTE",
             },
-            select: { id_payment: true, status: true },
+            data: {
+              status: "CANCELADA",
+              status_reason: "Reemplazada por plan masivo de grupal",
+              updated_at: new Date(),
+            },
           });
-
-          if (pending.length > 0) {
-            await tx.clientPayment.updateMany({
-              where: {
-                id_payment: { in: pending.map((item) => item.id_payment) },
-                id_agency: auth.id_agency,
-              },
-              data: {
-                status: "CANCELADA",
-                status_reason: "Reemplazada por plan masivo de grupal",
-              },
-            });
-            cancelledCount += pending.length;
-
-            for (const item of pending) {
-              await tx.clientPaymentAudit.create({
-                data: {
-                  client_payment_id: item.id_payment,
-                  id_agency: auth.id_agency,
-                  action: "STATUS_CHANGED",
-                  from_status: item.status,
-                  to_status: "CANCELADA",
-                  reason: "Reemplazada por plan masivo",
-                  changed_by: auth.id_user,
-                },
-              });
-            }
-          }
+          cancelledCount += cancelled.count;
         }
 
         for (const installment of installments) {
           const agencyPaymentId = await getNextAgencyCounter(
             tx,
             auth.id_agency,
-            "client_payment",
+            "travel_group_client_payment",
           );
-          const created = await tx.clientPayment.create({
+          await tx.travelGroupClientPayment.create({
             data: {
-              agency_client_payment_id: agencyPaymentId,
+              agency_travel_group_client_payment_id: agencyPaymentId,
               id_agency: auth.id_agency,
-              booking_id: passenger.booking_id,
+              travel_group_id: group.id_travel_group,
+              travel_group_departure_id: passenger.travel_group_departure_id,
+              travel_group_passenger_id: passenger.id_travel_group_passenger,
               client_id: passenger.client_id,
-              service_id: installment.service_id ?? null,
+              concept: "Plan masivo de grupal",
+              service_ref: installment.service_id
+                ? String(installment.service_id)
+                : null,
               amount: installment.amount,
               currency: installment.currency,
               due_date: installment.due_date,
               status: "PENDIENTE",
-            },
-            select: { id_payment: true },
-          });
-
-          await tx.clientPaymentAudit.create({
-            data: {
-              client_payment_id: created.id_payment,
-              id_agency: auth.id_agency,
-              action: "CREATED",
-              from_status: null,
-              to_status: "PENDIENTE",
-              reason: "Plan masivo de grupal",
-              changed_by: auth.id_user,
-              data: {
-                group_id: group.id_travel_group,
-                passenger_id: passenger.id_travel_group_passenger,
-              },
             },
           });
           createdCount += 1;

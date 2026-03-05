@@ -429,7 +429,7 @@ export default function GroupConfigPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-sky-100 via-white to-slate-100 px-4 py-6 text-slate-900 sm:px-6 lg:px-8">
+    <main className="min-h-screen bg-gradient-to-b from-sky-100 via-white to-slate-100 px-4 py-6 text-sky-950 dark:text-sky-50 sm:px-6 lg:px-8 [&_*]:!text-sky-950 dark:[&_*]:!text-sky-50">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <header className="rounded-3xl border border-sky-300/60 bg-white/65 p-6 shadow-lg shadow-sky-900/5 backdrop-blur-md">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -609,7 +609,7 @@ export default function GroupConfigPage() {
                 <input
                   value={templateName}
                   onChange={(e) => setTemplateName(e.target.value)}
-                  placeholder="Reserva + anticipo + cuotas"
+                  placeholder="Contexto + anticipo + cuotas"
                   disabled={savingTemplate}
                   className="rounded-xl border border-sky-200 bg-white/85 px-3 py-2 outline-none transition focus:border-sky-400 disabled:cursor-not-allowed disabled:opacity-70"
                 />

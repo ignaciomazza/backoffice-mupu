@@ -182,8 +182,6 @@ export default function GroupsPage() {
     "TOTAL",
   );
   const [capacityTotal, setCapacityTotal] = useState<string>("");
-  const [allowOverbooking, setAllowOverbooking] = useState(false);
-  const [waitlistEnabled, setWaitlistEnabled] = useState(false);
   const [departureMode, setDepartureMode] = useState<"UNICA" | "MULTIPLE">(
     "UNICA",
   );
@@ -239,12 +237,11 @@ export default function GroupsPage() {
         setShowCreateForm(false);
       } else if (data.code === "GROUP_BOOKING_LINK_PARTIAL") {
         setSchemaWarning(
-          data.warning ??
-            "La vinculación automática con reservas no está disponible todavía.",
+          data.warning ?? "Algunas métricas de contexto aún no están completas.",
         );
         setSchemaSolution(
           data.solution ??
-            "Podés crear y gestionar grupales. Para vincular reservas, aplicá la migración pendiente.",
+            "Podés crear y gestionar grupales. Aplicá las migraciones pendientes para completar el contexto.",
         );
         setSchemaCode("GROUP_BOOKING_LINK_PARTIAL");
       } else {
@@ -285,8 +282,6 @@ export default function GroupsPage() {
     setDepartureMode("UNICA");
     setCapacityMode("TOTAL");
     setCapacityTotal("");
-    setAllowOverbooking(false);
-    setWaitlistEnabled(false);
     setDepartureName("");
     setDepartureDate("");
     setDepartureReturnDate("");
@@ -305,8 +300,6 @@ export default function GroupsPage() {
         ? String(group.capacity_total)
         : "",
     );
-    setAllowOverbooking(Boolean(group.allow_overbooking));
-    setWaitlistEnabled(Boolean(group.waitlist_enabled));
     const normalizedSaleMode = String(group.sale_mode || "").toUpperCase();
     if (normalizedSaleMode === "MULTIPLE" || group._count.departures > 1) {
       setDepartureMode("MULTIPLE");
@@ -335,7 +328,7 @@ export default function GroupsPage() {
   async function handleDeleteGroup(group: GroupItem) {
     const ref = formatGroupReference(group);
     const confirmText =
-      "Solo se puede eliminar si está en borrador y sin pasajeros/reservas/servicios asociados.";
+      "Solo se puede eliminar si está en borrador y sin pasajeros/servicios asociados.";
     const accepted =
       typeof window === "undefined"
         ? false
@@ -407,9 +400,9 @@ export default function GroupsPage() {
         status,
         sale_mode: departureMode,
         capacity_mode: capacityMode,
-        capacity_total: capacityTotal.trim() ? Number(capacityTotal) : null,
-        allow_overbooking: allowOverbooking,
-        waitlist_enabled: waitlistEnabled,
+        capacity_total: null,
+        allow_overbooking: true,
+        waitlist_enabled: false,
       };
 
       if (!editingGroup) {
@@ -423,8 +416,8 @@ export default function GroupsPage() {
               capacity_total: capacityTotal.trim()
                 ? Number(capacityTotal)
                 : null,
-              allow_overbooking: allowOverbooking,
-              waitlist_enabled: waitlistEnabled,
+              allow_overbooking: true,
+              waitlist_enabled: false,
             },
           ];
         } else if (departureName.trim() && departureDate) {
@@ -433,6 +426,11 @@ export default function GroupsPage() {
               name: departureName.trim(),
               departure_date: departureDate,
               return_date: departureReturnDate || null,
+              capacity_total: capacityTotal.trim()
+                ? Number(capacityTotal)
+                : null,
+              allow_overbooking: true,
+              waitlist_enabled: false,
             },
           ];
         }
@@ -551,7 +549,7 @@ export default function GroupsPage() {
   }
 
   return (
-    <main className="min-h-screen px-4 py-6 text-slate-900 dark:text-slate-100 sm:px-6 lg:px-8">
+    <main className="min-h-screen px-4 py-6 text-sky-950 dark:text-sky-50 sm:px-6 lg:px-8 [&_*]:!text-sky-950 dark:[&_*]:!text-sky-50">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <div className="flex flex-col gap-6">
           <section
@@ -738,7 +736,7 @@ export default function GroupsPage() {
                         disabled={createDisabled}
                         className={pillClass(capacityMode === "TOTAL", "sky")}
                       >
-                        Cupo total
+                        Cupo por salida
                       </button>
                       <button
                         type="button"
@@ -756,7 +754,7 @@ export default function GroupsPage() {
 
                   <label className="flex flex-col gap-1 text-sm">
                     <span className="text-slate-800 dark:text-slate-200">
-                      Cupo total
+                      Cupo total por salida
                     </span>
                     <input
                       value={capacityTotal}
@@ -766,30 +764,11 @@ export default function GroupsPage() {
                       className="rounded-xl border border-slate-300/90 bg-white/95 px-3 py-2 text-slate-900 outline-none transition focus:border-slate-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-100 dark:focus:border-slate-400"
                       placeholder="20"
                     />
+                    <span className="text-xs text-slate-600 dark:text-slate-400">
+                      Este cupo se aplica en cada salida. La grupal no usa cupo
+                      global.
+                    </span>
                   </label>
-
-                  <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-300/80 bg-slate-100/70 p-3 dark:border-slate-700 dark:bg-slate-800/60">
-                    <button
-                      type="button"
-                      onClick={() => setAllowOverbooking((v) => !v)}
-                      disabled={createDisabled}
-                      className={pillClass(allowOverbooking, "emerald")}
-                    >
-                      {allowOverbooking
-                        ? "Sobreventa activada"
-                        : "Sobreventa desactivada"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setWaitlistEnabled((v) => !v)}
-                      disabled={createDisabled}
-                      className={pillClass(waitlistEnabled, "amber")}
-                    >
-                      {waitlistEnabled
-                        ? "Lista de espera activada"
-                        : "Lista de espera desactivada"}
-                    </button>
-                  </div>
                 </CollapsiblePanel>
 
                 {!editingGroup && departureMode === "UNICA" ? (
@@ -1196,7 +1175,7 @@ export default function GroupsPage() {
                         <div className="mt-3 flex flex-wrap items-center gap-2"></div>
                         <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-sky-900/85 dark:text-sky-100/85">
                           <span className="rounded-full border border-white/10 bg-white/15 px-2 py-1 dark:bg-white/10">
-                            Cupo: {group.capacity_total ?? "-"}
+                            Cupo base por salida: {group.capacity_total ?? "-"}
                           </span>
                           <span className="rounded-full border border-white/10 bg-white/15 px-2 py-1 dark:bg-white/10">
                             Salidas: {group._count.departures}
@@ -1353,7 +1332,7 @@ export default function GroupsPage() {
 
                         <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-sky-900/85 dark:text-sky-100/85 sm:grid-cols-3">
                           <span className="rounded-full border border-white/10 bg-white/15 px-2 py-1 dark:bg-white/10">
-                            Cupo: {group.capacity_total ?? "-"}
+                            Cupo base por salida: {group.capacity_total ?? "-"}
                           </span>
                           <span className="rounded-full border border-white/10 bg-white/15 px-2 py-1 dark:bg-white/10">
                             Salidas: {group._count.departures}
@@ -1362,20 +1341,6 @@ export default function GroupsPage() {
                             Pasajeros: {group._count.passengers}
                           </span>
                         </div>
-                        {group.allow_overbooking || group.waitlist_enabled ? (
-                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-sky-900/85 dark:text-sky-100/85">
-                            {group.allow_overbooking ? (
-                              <span className="rounded-full border border-emerald-300 bg-emerald-100 px-2 py-1 text-emerald-800 dark:border-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-200">
-                                Sobreventa
-                              </span>
-                            ) : null}
-                            {group.waitlist_enabled ? (
-                              <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-1 text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
-                                Espera
-                              </span>
-                            ) : null}
-                          </div>
-                        ) : null}
                       </article>
                     );
                   })}

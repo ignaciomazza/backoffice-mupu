@@ -35,7 +35,7 @@ export default function GroupAttachReceiptSection(props: {
   return (
     <Section
       title="Recibo existente"
-      desc="Buscá el recibo que ya fue creado para asociarlo a esta reserva/servicios."
+      desc="Buscá el recibo ya creado para asociarlo a este contexto/servicios."
     >
       <Field id="receipt_search" label="Buscar recibo" hint="Por número o importe…">
         <input

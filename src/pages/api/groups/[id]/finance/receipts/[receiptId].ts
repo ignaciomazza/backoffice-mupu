@@ -11,6 +11,10 @@ import {
   toDecimal,
 } from "@/lib/groups/financeShared";
 import { validateGroupReceiptDebt } from "@/lib/groups/groupReceiptDebtValidation";
+import {
+  decodeInventoryServiceId,
+  encodeInventoryServiceId,
+} from "@/lib/groups/inventoryServiceRefs";
 
 async function findReceipt(
   agencyId: number,
@@ -166,22 +170,72 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse) {
           : [],
     ),
   );
-  if (existing.booking_id) {
-    const [services, existingReceipts] = await Promise.all([
-      prisma.service.findMany({
-        where: {
-          id_agency: ctx.auth.id_agency,
-          booking_id: existing.booking_id,
-        },
-        select: {
-          id_service: true,
-          currency: true,
-          sale_price: true,
-          card_interest: true,
-          taxableCardInterest: true,
-          vatOnCardInterest: true,
-        },
-      }),
+  if (finalServiceIds.length > 0) {
+    const linkedPassenger = await prisma.travelGroupPassenger.findFirst({
+      where: {
+        id_agency: ctx.auth.id_agency,
+        travel_group_id: ctx.group.id_travel_group,
+        id_travel_group_passenger: existing.travel_group_passenger_id,
+      },
+      select: {
+        travel_group_departure_id: true,
+      },
+    });
+
+    const inventoryServiceByEncoded = new Map<number, number>();
+    const regularServiceIds: number[] = [];
+    for (const serviceId of finalServiceIds) {
+      const inventoryId = decodeInventoryServiceId(serviceId);
+      if (inventoryId) {
+        inventoryServiceByEncoded.set(serviceId, inventoryId);
+      } else {
+        regularServiceIds.push(serviceId);
+      }
+    }
+
+    const inventoryIds = Array.from(new Set(inventoryServiceByEncoded.values()));
+    const [regularServices, inventoryRows, existingReceipts] = await Promise.all([
+      regularServiceIds.length > 0
+        ? prisma.service.findMany({
+            where: {
+              id_agency: ctx.auth.id_agency,
+              id_service: { in: regularServiceIds },
+            },
+            select: {
+              id_service: true,
+              currency: true,
+              sale_price: true,
+              card_interest: true,
+              taxableCardInterest: true,
+              vatOnCardInterest: true,
+            },
+          })
+        : Promise.resolve([]),
+      inventoryIds.length > 0
+        ? prisma.travelGroupInventory.findMany({
+            where: {
+              id_agency: ctx.auth.id_agency,
+              travel_group_id: ctx.group.id_travel_group,
+              id_travel_group_inventory: { in: inventoryIds },
+              ...(linkedPassenger?.travel_group_departure_id == null
+                ? { travel_group_departure_id: null }
+                : {
+                    OR: [
+                      { travel_group_departure_id: null },
+                      {
+                        travel_group_departure_id:
+                          linkedPassenger.travel_group_departure_id,
+                      },
+                    ],
+                  }),
+            },
+            select: {
+              id_travel_group_inventory: true,
+              currency: true,
+              unit_cost: true,
+            },
+          })
+        : Promise.resolve([]),
       prisma.travelGroupReceipt.findMany({
         where: {
           id_agency: ctx.auth.id_agency,
@@ -200,16 +254,32 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse) {
       }),
     ]);
 
+    const normalizedRegularServices = regularServices.map((row) => ({
+      id_service: row.id_service,
+      currency: row.currency,
+      sale_price: toAmountNumber(row.sale_price),
+      card_interest: toAmountNumber(row.card_interest),
+      taxableCardInterest: toAmountNumber(row.taxableCardInterest),
+      vatOnCardInterest: toAmountNumber(row.vatOnCardInterest),
+    }));
+
+    const inventoryServices = inventoryRows.map((row) => ({
+      id_service: encodeInventoryServiceId(row.id_travel_group_inventory),
+      currency: row.currency,
+      sale_price: toAmountNumber(row.unit_cost),
+      card_interest: 0,
+      taxableCardInterest: 0,
+      vatOnCardInterest: 0,
+    }));
+
     const validation = validateGroupReceiptDebt({
       selectedServiceIds: finalServiceIds,
-      services,
+      services: [...normalizedRegularServices, ...inventoryServices],
       existingReceipts,
       currentReceipt: {
         amount: toAmountNumber(amount),
         amountCurrency,
-        paymentFeeAmount: paymentFeeAmount
-          ? toAmountNumber(paymentFeeAmount)
-          : 0,
+        paymentFeeAmount: paymentFeeAmount ? toAmountNumber(paymentFeeAmount) : 0,
         baseAmount: baseAmount ? toAmountNumber(baseAmount) : null,
         baseCurrency,
       },
@@ -220,15 +290,6 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse) {
       });
     }
     finalServiceIds = validation.normalizedServiceIds;
-  } else if (finalServiceIds.length > 0) {
-    return groupApiError(
-      res,
-      400,
-      "No podés asociar servicios si el pasajero no tiene una reserva vinculada.",
-      {
-        code: "GROUP_FINANCE_SERVICE_WITHOUT_BOOKING",
-      },
-    );
   }
 
   await prisma.$executeRaw(Prisma.sql`

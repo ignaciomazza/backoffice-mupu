@@ -129,7 +129,6 @@ export default async function handler(
     },
     select: {
       id_travel_group_passenger: true,
-      booking_id: true,
       status: true,
       waitlist_position: true,
     },
@@ -221,29 +220,6 @@ export default async function handler(
           id_travel_group_passenger: passenger.id_travel_group_passenger,
         },
       });
-
-      const bookingId =
-        typeof passenger.booking_id === "number" && passenger.booking_id > 0
-          ? passenger.booking_id
-          : null;
-      if (bookingId) {
-        const paxCount = await tx.travelGroupPassenger.count({
-          where: {
-            id_agency: auth.id_agency,
-            travel_group_id: group.id_travel_group,
-            booking_id: bookingId,
-          },
-        });
-        await tx.booking.updateMany({
-          where: {
-            id_booking: bookingId,
-            id_agency: auth.id_agency,
-          },
-          data: {
-            pax_count: Math.max(paxCount, 0),
-          },
-        });
-      }
 
       const normalizedStatus = normalizeStatus(passenger.status);
       if (

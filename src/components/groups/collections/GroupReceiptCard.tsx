@@ -3,7 +3,11 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Receipt, Booking, Service } from "@/types";
+import { Receipt, Service } from "@/types";
+import {
+  resolveGroupFinanceContextId,
+  type GroupFinanceContext,
+} from "@/components/groups/finance/contextTypes";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
@@ -134,7 +138,7 @@ const IconButton: React.FC<
 interface ReceiptCardProps {
   token: string | null;
   receipt: Receipt;
-  booking: Booking;
+  context: GroupFinanceContext;
   groupId?: string;
   services: Service[];
   role: string;
@@ -147,48 +151,49 @@ interface ReceiptCardProps {
 export default function GroupReceiptCard({
   token,
   receipt,
-  booking,
+  context,
   groupId,
   services,
   role,
   onReceiptDeleted,
   onReceiptEdit,
 }: ReceiptCardProps) {
+  const contextId = resolveGroupFinanceContextId(context);
   const [loadingPDF, setLoadingPDF] = useState(false);
   const [loadingDelete, setLoadingDelete] = useState(false);
   const canDownload = !groupId;
 
   const getClientName = useCallback(
     (id: number): string => {
-      if (booking.titular?.id_client === id) {
+      if (context.titular?.id_client === id) {
         const titularNumber = formatAgencyNumber(
-          booking.titular.agency_client_id,
+          context.titular.agency_client_id,
         );
-        return `${booking.titular.first_name} ${booking.titular.last_name} · Nº${titularNumber}`;
+        return `${context.titular.first_name} ${context.titular.last_name} · Nº${titularNumber}`;
       }
-      const found = booking.clients?.find((c) => c.id_client === id);
+      const found = context.clients?.find((c) => c.id_client === id);
       return found
         ? `${found.first_name} ${found.last_name} · Nº${formatAgencyNumber(
             found.agency_client_id,
           )}`
         : "Sin Nº";
     },
-    [booking],
+    [context],
   );
 
   const clientsStr = useMemo(() => {
     return receipt.clientIds?.length
       ? receipt.clientIds.map(getClientName).join(", ")
-      : booking.titular
-        ? `${booking.titular.first_name} ${booking.titular.last_name} · Nº${
-            formatAgencyNumber(booking.titular.agency_client_id)
+      : context.titular
+        ? `${context.titular.first_name} ${context.titular.last_name} · Nº${
+            formatAgencyNumber(context.titular.agency_client_id)
           }`
         : "—";
-  }, [receipt.clientIds, getClientName, booking.titular]);
+  }, [receipt.clientIds, getClientName, context.titular]);
 
   const servicesPool = useMemo(
-    () => (services?.length ? services : (booking.services ?? [])),
-    [services, booking.services],
+    () => (services?.length ? services : (context.services ?? [])),
+    [services, context.services],
   );
   const serviceMap = useMemo(() => {
     const map = new Map<number, Service>();
@@ -312,9 +317,9 @@ export default function GroupReceiptCard({
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       const rawName =
-        booking.titular?.company_name ||
-        `${booking.titular?.first_name || ""} ${booking.titular?.last_name || ""}`.trim() ||
-        `Grupal_${booking.id_booking}`;
+        context.titular?.company_name ||
+        `${context.titular?.first_name || ""} ${context.titular?.last_name || ""}`.trim() ||
+        `Grupal_${contextId ?? "sin-contexto"}`;
       a.href = url;
       a.download = `Recibo_${slugify(rawName)}_${receiptFileLabel}.pdf`;
       document.body.appendChild(a);

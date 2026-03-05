@@ -39,10 +39,12 @@ type PaymentRow = {
 function buildClientPaymentResponse(row: PaymentRow) {
   const dueDate = row.due_date instanceof Date ? row.due_date : new Date(row.due_date);
   const derived = deriveClientPaymentStatus(row.status, dueDate);
+  const contextId = row.booking_id ?? 0;
   return {
     id_payment: row.id_travel_group_client_payment,
     agency_client_payment_id: row.agency_travel_group_client_payment_id,
-    booking_id: row.booking_id ?? 0,
+    context_id: contextId,
+    booking_id: contextId,
     client_id: row.client_id,
     amount: toAmountNumber(row.amount),
     currency: normalizeCurrencyCode(row.currency),

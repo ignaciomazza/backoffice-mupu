@@ -174,17 +174,8 @@ export default async function handler(
         bookings: current._count.bookings ?? 0,
       },
     });
-    if (!bookingLinkPartial) {
-      return res.status(200).json(payload);
-    }
-    return res.status(200).json({
-      ...payload,
-      code: "GROUP_BOOKING_LINK_PARTIAL",
-      warning:
-        "La vinculación automática con reservas todavía no está disponible en esta base.",
-      solution:
-        "Podés operar la grupal; para ver reservas vinculadas aplicá la migración pendiente de reservas.",
-    });
+    void bookingLinkPartial;
+    return res.status(200).json(payload);
   }
 
   if (req.method === "PATCH") {
@@ -514,17 +505,8 @@ export default async function handler(
         },
       });
 
-      if (!updateBookingLinkPartial) {
-        return res.status(200).json(payload);
-      }
-      return res.status(200).json({
-        ...payload,
-        code: "GROUP_BOOKING_LINK_PARTIAL",
-        warning:
-          "La grupal se actualizó, pero la vinculación con reservas todavía no está disponible.",
-        solution:
-          "Aplicá la migración pendiente de reservas para habilitar esa vinculación.",
-      });
+      void updateBookingLinkPartial;
+      return res.status(200).json(payload);
     } catch (error) {
       console.error("[groups][PATCH]", error);
       if (
@@ -559,14 +541,13 @@ export default async function handler(
     }
 
     const hasAssociations =
-      (current._count.bookings ?? 0) > 0 ||
       current._count.passengers > 0 ||
       current._count.inventories > 0;
     if (hasAssociations) {
       return groupApiError(
         res,
         409,
-        "No se puede eliminar la grupal porque tiene pasajeros, reservas o inventario asociado.",
+        "No se puede eliminar la grupal porque tiene pasajeros o inventario asociado.",
         {
           code: "GROUP_DELETE_HAS_ASSOCIATIONS",
           solution: "Quitá las asociaciones antes de intentar eliminarla.",

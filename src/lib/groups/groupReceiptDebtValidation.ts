@@ -175,8 +175,8 @@ export function validateGroupReceiptDebt(args: {
     return {
       ok: false,
       status: 400,
-      code: "GROUP_FINANCE_SERVICE_NOT_IN_BOOKING",
-      message: "Algún servicio seleccionado no pertenece a la reserva.",
+      code: "GROUP_FINANCE_SERVICE_NOT_IN_GROUP_CONTEXT",
+      message: "Algún servicio seleccionado no pertenece al contexto de la grupal.",
     };
   }
 
@@ -307,4 +307,3 @@ export function validateGroupReceiptDebt(args: {
     normalizedServiceIds,
   };
 }
-

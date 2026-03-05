@@ -1,6 +1,7 @@
 "use client";
 import { useMemo, useState, useCallback, type ReactNode } from "react";
-import { Booking, Operator, OperatorDue, Service } from "@/types";
+import { Operator, OperatorDue, Service } from "@/types";
+import type { GroupFinanceContext } from "@/components/groups/finance/contextTypes";
 import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
 import {
@@ -96,7 +97,7 @@ const formatAgencyNumber = (value: number | null | undefined): string => {
 
 interface Props {
   due: OperatorDue;
-  booking: Booking;
+  context: GroupFinanceContext;
   groupId?: string;
   role: string;
   onDueDeleted?: (id: number) => void;
@@ -106,7 +107,7 @@ interface Props {
 
 export default function GroupOperatorDueCard({
   due,
-  booking,
+  context,
   groupId,
   role,
   onDueDeleted,
@@ -136,8 +137,8 @@ export default function GroupOperatorDueCard({
   }, []);
 
   const service = useMemo(
-    () => booking.services?.find((s) => s.id_service === due.service_id),
-    [booking.services, due.service_id],
+    () => context.services?.find((s) => s.id_service === due.service_id),
+    [context.services, due.service_id],
   );
 
   const serviceLabel = useMemo(() => {

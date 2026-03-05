@@ -322,7 +322,7 @@ export default async function handler(
         }
         bookingLinkPartial = true;
         console.warn(
-          "[groups][GET] Vínculo de reservas con grupales no disponible; se lista sin conteo de reservas.",
+          "[groups][GET] Contexto de grupales parcialmente disponible; se lista sin conteos adicionales.",
         );
         rows = await prisma.travelGroup.findMany({
           ...baseQuery,
@@ -353,14 +353,7 @@ export default async function handler(
         })),
         next_cursor: hasMore ? slice[slice.length - 1].id_travel_group : null,
       } as Record<string, unknown>;
-
-      if (bookingLinkPartial) {
-        response.code = "GROUP_BOOKING_LINK_PARTIAL";
-        response.warning =
-          "La vinculación automática con reservas todavía no está disponible en esta base.";
-        response.solution =
-          "Podés crear y gestionar grupales. Para vincular reservas, aplicá la migración pendiente de reservas.";
-      }
+      void bookingLinkPartial;
 
       return res.status(200).json(response);
     } catch (error) {
@@ -635,7 +628,7 @@ export default async function handler(
         }
         bookingLinkPartial = true;
         console.warn(
-          "[groups][POST] Grupal creada sin conteo de reservas por migración parcial de Booking.",
+          "[groups][POST] Grupal creada con esquema parcial; se devuelve sin conteos adicionales.",
         );
         full = await prisma.travelGroup.findUnique({
           where: { id_travel_group: createdGroup },
@@ -678,13 +671,7 @@ export default async function handler(
           public_id: getDeparturePublicId(dep),
         })),
       } as Record<string, unknown>;
-      if (bookingLinkPartial) {
-        response.code = "GROUP_BOOKING_LINK_PARTIAL";
-        response.warning =
-          "La grupal se creó, pero todavía no está habilitada la vinculación automática con reservas.";
-        response.solution =
-          "Aplicá la migración pendiente de reservas para habilitar ese vínculo.";
-      }
+      void bookingLinkPartial;
 
       return res.status(201).json(response);
     } catch (error) {

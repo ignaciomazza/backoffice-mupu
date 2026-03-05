@@ -43,6 +43,7 @@ function normalizeDueStatus(raw: unknown): string {
 
 function buildDueResponse(row: DueRow) {
   const serviceId = Number(String(row.service_ref ?? "").replace(/\D/g, ""));
+  const contextId = row.booking_id ?? 0;
   return {
     id_due: row.id_travel_group_operator_due,
     agency_operator_due_id: row.agency_travel_group_operator_due_id,
@@ -50,7 +51,8 @@ function buildDueResponse(row: DueRow) {
       row.created_at instanceof Date
         ? row.created_at.toISOString()
         : new Date(row.created_at).toISOString(),
-    booking_id: row.booking_id ?? 0,
+    context_id: contextId,
+    booking_id: contextId,
     service_id: Number.isFinite(serviceId) && serviceId > 0 ? serviceId : 0,
     due_date:
       row.due_date instanceof Date

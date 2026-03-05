@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
-import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import {
   canWriteGroups,
   isLockedGroupStatus,
@@ -13,8 +12,6 @@ import {
 } from "@/lib/groups/apiShared";
 import { groupApiError } from "@/lib/groups/apiErrors";
 
-type TxClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
-
 type BulkUpdateBody = {
   passengerIds?: unknown;
   status?: unknown;
@@ -23,10 +20,6 @@ type BulkUpdateBody = {
   note?: unknown;
   metadata?: unknown;
 };
-
-const LEGACY_GROUP_BOOKING_UNIQUE_INDEX =
-  "TravelGroupPassenger_travel_group_id_booking_id_key";
-const SHARED_BOOKING_CONTEXT_ERROR = "GROUP_SHARED_BOOKING_CONTEXT_ERROR";
 
 function pickParam(value: string | string[] | undefined): string | null {
   if (!value) return null;
@@ -59,113 +52,6 @@ function isConfirmedPassengerStatus(value: unknown): boolean {
     (typeof value === "string" ? value.trim().toUpperCase() : "");
   if (!normalized) return false;
   return !NON_CONFIRMED_PASSENGER_STATUSES.has(normalized);
-}
-
-function isPassengerBookingUniqueConstraintError(error: unknown): boolean {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
-  if (error.code !== "P2002") return false;
-  const rawTarget = (error.meta as { target?: unknown } | undefined)?.target;
-  const fields = Array.isArray(rawTarget)
-    ? rawTarget.map((item) => String(item))
-    : typeof rawTarget === "string"
-      ? [rawTarget]
-      : [];
-  if (fields.includes("travel_group_id") && fields.includes("booking_id")) {
-    return true;
-  }
-  const targetAsString = fields.join(" ").toLowerCase();
-  if (
-    targetAsString.includes("travel_group_id") &&
-    targetAsString.includes("booking_id")
-  ) {
-    return true;
-  }
-  const message = String(error.message || "").toLowerCase();
-  return (
-    message.includes("travel_group_id") && message.includes("booking_id")
-  );
-}
-
-async function dropLegacyPassengerBookingUniqueIndex(tx: TxClient) {
-  try {
-    await tx.$executeRawUnsafe(
-      `DROP INDEX IF EXISTS "${LEGACY_GROUP_BOOKING_UNIQUE_INDEX}"`,
-    );
-  } catch {
-    throw new Error(SHARED_BOOKING_CONTEXT_ERROR);
-  }
-}
-
-type EnsureGroupBookingContextArgs = {
-  tx: TxClient;
-  agencyId: number;
-  groupId: number;
-  groupName: string;
-  departureId: number | null;
-  departureDate: Date;
-  returnDate: Date;
-  departureName: string | null;
-  userId: number;
-  titularClientId: number;
-  matchTitularClientId?: number | null;
-};
-
-async function ensureGroupBookingContext({
-  tx,
-  agencyId,
-  groupId,
-  groupName,
-  departureId,
-  departureDate,
-  returnDate,
-  departureName,
-  userId,
-  titularClientId,
-  matchTitularClientId,
-}: EnsureGroupBookingContextArgs): Promise<number> {
-  const bookingWhere: Prisma.BookingWhereInput = {
-    id_agency: agencyId,
-    travel_group_id: groupId,
-    travel_group_departure_id: departureId,
-  };
-  if (
-    typeof matchTitularClientId === "number" &&
-    Number.isFinite(matchTitularClientId) &&
-    matchTitularClientId > 0
-  ) {
-    bookingWhere.titular_id = matchTitularClientId;
-  }
-
-  const existing = await tx.booking.findFirst({
-    where: bookingWhere,
-    orderBy: [{ creation_date: "asc" }, { id_booking: "asc" }],
-    select: { id_booking: true },
-  });
-  if (existing?.id_booking) return existing.id_booking;
-
-  const agencyBookingId = await getNextAgencyCounter(tx, agencyId, "booking");
-  const created = await tx.booking.create({
-    data: {
-      agency_booking_id: agencyBookingId,
-      clientStatus: "Pendiente",
-      operatorStatus: "Pendiente",
-      status: "Abierta",
-      details: `Grupal ${groupName} · ${departureName || "Sin salida"}`.slice(0, 300),
-      invoice_type: "B",
-      invoice_observation: null,
-      observation: "Reserva de contexto creada al normalizar pasajeros de grupal.",
-      id_user: userId,
-      id_agency: agencyId,
-      titular_id: titularClientId,
-      departure_date: departureDate,
-      return_date: returnDate,
-      pax_count: 1,
-      travel_group_id: groupId,
-      travel_group_departure_id: departureId,
-    },
-    select: { id_booking: true },
-  });
-  return created.id_booking;
 }
 
 export default async function handler(
@@ -468,49 +354,6 @@ export default async function handler(
     }
   }
 
-  const departureSeeds = await prisma.travelGroupDeparture.findMany({
-    where: {
-      id_agency: auth.id_agency,
-      travel_group_id: group.id_travel_group,
-    },
-    select: {
-      id_travel_group_departure: true,
-      name: true,
-      departure_date: true,
-      return_date: true,
-    },
-  });
-  const departureSeedById = new Map(
-    departureSeeds.map((item) => [item.id_travel_group_departure, item]),
-  );
-
-  const resolveContextDates = (targetDepartureId: number | null) => {
-    if (
-      targetDepartureId != null &&
-      Number.isFinite(targetDepartureId) &&
-      departureSeedById.has(targetDepartureId)
-    ) {
-      const seed = departureSeedById.get(targetDepartureId)!;
-      return {
-        departureDate: seed.departure_date,
-        returnDate:
-          seed.return_date ??
-          seed.departure_date ??
-          group.start_date ??
-          new Date(),
-        departureName: seed.name ?? null,
-      };
-    }
-    return {
-      departureDate: group.start_date ?? new Date(),
-      returnDate:
-        group.end_date ??
-        group.start_date ??
-        new Date(),
-      departureName: null as string | null,
-    };
-  };
-
   try {
     const waitlistBase =
       nextStatus === "LISTA_ESPERA"
@@ -530,36 +373,6 @@ export default async function handler(
     const updatedAtIso = new Date().toISOString();
 
     await prisma.$transaction(async (tx) => {
-      await dropLegacyPassengerBookingUniqueIndex(tx);
-
-      const contextBookingCache = new Map<string, number>();
-      const touchedBookingIds = new Set<number>();
-
-      const ensureClientLinkedToBooking = async (
-        bookingId: number,
-        clientId: number,
-      ) => {
-        const alreadyLinked = await tx.booking.findFirst({
-          where: {
-            id_booking: bookingId,
-            OR: [
-              { titular_id: clientId },
-              { clients: { some: { id_client: clientId } } },
-            ],
-          },
-          select: { id_booking: true },
-        });
-        if (alreadyLinked) return;
-        await tx.booking.update({
-          where: { id_booking: bookingId },
-          data: {
-            clients: {
-              connect: { id_client: clientId },
-            },
-          },
-        });
-      };
-
       for (const passenger of passengers) {
         const data: Prisma.TravelGroupPassengerUncheckedUpdateInput = {};
         const targetDepartureId =
@@ -579,52 +392,6 @@ export default async function handler(
 
         if (departure !== undefined) {
           data.travel_group_departure_id = targetDepartureId;
-        }
-
-        let targetBookingId =
-          typeof passenger.booking_id === "number" && passenger.booking_id > 0
-            ? passenger.booking_id
-            : null;
-
-        if (
-          typeof passenger.client_id === "number" &&
-          passenger.client_id > 0
-        ) {
-          const scopeKey =
-            targetDepartureId == null ? "group" : `departure:${targetDepartureId}`;
-          const cachedBookingId = contextBookingCache.get(scopeKey);
-          if (cachedBookingId) {
-            targetBookingId = cachedBookingId;
-          } else {
-            const contextDates = resolveContextDates(targetDepartureId);
-            const resolvedBookingId = await ensureGroupBookingContext({
-              tx,
-              agencyId: auth.id_agency,
-              groupId: group.id_travel_group,
-              groupName: group.name,
-              departureId: targetDepartureId,
-              departureDate: contextDates.departureDate,
-              returnDate: contextDates.returnDate,
-              departureName: contextDates.departureName,
-              userId: auth.id_user,
-              titularClientId: passenger.client_id,
-              matchTitularClientId: null,
-            });
-            contextBookingCache.set(scopeKey, resolvedBookingId);
-            targetBookingId = resolvedBookingId;
-          }
-        }
-
-        if (
-          targetBookingId &&
-          typeof passenger.client_id === "number" &&
-          passenger.client_id > 0
-        ) {
-          await ensureClientLinkedToBooking(targetBookingId, passenger.client_id);
-        }
-
-        if (targetBookingId !== passenger.booking_id) {
-          data.booking_id = targetBookingId;
         }
 
         if (note !== undefined || metadataInput !== undefined) {
@@ -658,46 +425,11 @@ export default async function handler(
 
           data.metadata = merged as Prisma.InputJsonObject;
         }
-
-        const finalBookingId = targetBookingId;
-
-        try {
-          await tx.travelGroupPassenger.update({
-            where: {
-              id_travel_group_passenger: passenger.id_travel_group_passenger,
-            },
-            data,
-          });
-        } catch (error) {
-          if (
-            !isPassengerBookingUniqueConstraintError(error) ||
-            typeof passenger.client_id !== "number" ||
-            passenger.client_id <= 0
-          ) {
-            throw error;
-          }
-          throw new Error(SHARED_BOOKING_CONTEXT_ERROR);
-        }
-
-        if (typeof passenger.booking_id === "number" && passenger.booking_id > 0) {
-          touchedBookingIds.add(passenger.booking_id);
-        }
-        if (finalBookingId) {
-          touchedBookingIds.add(finalBookingId);
-        }
-      }
-
-      for (const bookingId of touchedBookingIds) {
-        const paxCount = await tx.travelGroupPassenger.count({
+        await tx.travelGroupPassenger.update({
           where: {
-            id_agency: auth.id_agency,
-            travel_group_id: group.id_travel_group,
-            booking_id: bookingId,
+            id_travel_group_passenger: passenger.id_travel_group_passenger,
           },
-        });
-        await tx.booking.update({
-          where: { id_booking: bookingId },
-          data: { pax_count: Math.max(paxCount, 0) },
+          data,
         });
       }
     });
@@ -715,21 +447,6 @@ export default async function handler(
       },
     });
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.includes(SHARED_BOOKING_CONTEXT_ERROR)
-    ) {
-      return groupApiError(
-        res,
-        409,
-        "Detectamos una restricción legada que impide compartir contexto por salida. Ejecutá la migración que elimina el índice único de pasajeros por reserva y reintentá.",
-        {
-          code: "GROUP_SHARED_BOOKING_CONTEXT_BLOCKED",
-          solution:
-            "Aplicá la migración `20260622150000_allow_shared_group_booking_context` en la misma base donde corre la API.",
-        },
-      );
-    }
     console.error("[groups][passengers][bulk-update]", error);
     return groupApiError(res, 500, "No pudimos actualizar los pasajeros.", {
       code: "GROUP_PASSENGER_UPDATE_ERROR",

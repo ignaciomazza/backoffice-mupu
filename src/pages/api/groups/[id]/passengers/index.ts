@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import prisma from "@/lib/prisma";
+import prisma, { Prisma } from "@/lib/prisma";
 import {
   parseDepartureWhereInput,
   getDeparturePublicId,
@@ -124,18 +124,6 @@ export default async function handler(
             email: true,
           },
         },
-        booking: {
-          select: {
-            id_booking: true,
-            agency_booking_id: true,
-            status: true,
-            clientStatus: true,
-            operatorStatus: true,
-            details: true,
-            departure_date: true,
-            return_date: true,
-          },
-        },
         travelGroupDeparture: {
           select: {
             id_travel_group_departure: true,
@@ -156,34 +144,40 @@ export default async function handler(
       ],
     });
 
-    const bookingIds = Array.from(
-      new Set(
-        passengers
-          .map((item) => item.booking_id)
-          .filter((id): id is number => typeof id === "number" && id > 0),
-      ),
-    );
+    const passengerScopeIds = passengers
+      .map((item) => item.id_travel_group_passenger)
+      .filter((id) => Number.isFinite(id) && id > 0);
 
-    const pendingAgg =
-      bookingIds.length > 0
-        ? await prisma.clientPayment.groupBy({
-            by: ["booking_id", "client_id"],
-            where: {
-              id_agency: auth.id_agency,
-              booking_id: { in: bookingIds },
-              status: "PENDIENTE",
-            },
-            _sum: { amount: true },
-            _count: { _all: true },
-          })
-        : [];
-
-    const pendingByPassengerKey = new Map<string, { amount: string; count: number }>();
-    for (const row of pendingAgg) {
-      pendingByPassengerKey.set(`${row.booking_id}:${row.client_id}`, {
-        amount: row._sum.amount?.toString() ?? "0",
-        count: row._count._all ?? 0,
-      });
+    const pendingByPassengerId = new Map<number, { amount: string; count: number }>();
+    if (passengerScopeIds.length > 0) {
+      try {
+        const pendingAgg = await prisma.travelGroupClientPayment.groupBy({
+          by: ["travel_group_passenger_id"],
+          where: {
+            id_agency: auth.id_agency,
+            travel_group_id: group.id_travel_group,
+            travel_group_passenger_id: { in: passengerScopeIds },
+            status: "PENDIENTE",
+          },
+          _sum: { amount: true },
+          _count: { _all: true },
+        });
+        for (const row of pendingAgg) {
+          pendingByPassengerId.set(row.travel_group_passenger_id, {
+            amount: row._sum.amount?.toString() ?? "0",
+            count: row._count._all ?? 0,
+          });
+        }
+      } catch (error) {
+        if (
+          !(
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            (error.code === "P2021" || error.code === "P2022")
+          )
+        ) {
+          throw error;
+        }
+      }
     }
 
     return res.status(200).json({
@@ -194,12 +188,10 @@ export default async function handler(
           ? getDeparturePublicId(item.travelGroupDeparture)
           : null,
         pending_payment:
-          item.booking_id && item.client_id
-            ? pendingByPassengerKey.get(`${item.booking_id}:${item.client_id}`) ?? {
-                amount: "0",
-                count: 0,
-              }
-            : { amount: "0", count: 0 },
+          pendingByPassengerId.get(item.id_travel_group_passenger) ?? {
+            amount: "0",
+            count: 0,
+          },
       })),
     });
   } catch (error) {

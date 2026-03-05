@@ -1,11 +1,12 @@
 import { useMemo } from "react";
-import { Booking, Operator, OperatorDue } from "@/types";
+import { Operator, OperatorDue } from "@/types";
+import type { GroupFinanceContext } from "@/components/groups/finance/contextTypes";
 import Spinner from "@/components/Spinner";
 import GroupOperatorDueCard from "@/components/groups/payments/GroupOperatorDueCard";
 
 interface Props {
   dues: OperatorDue[] | undefined;
-  booking: Booking;
+  context: GroupFinanceContext;
   groupId?: string;
   role: string;
   onDueDeleted?: (id: number) => void;
@@ -16,7 +17,7 @@ interface Props {
 
 export default function GroupOperatorDueList({
   dues,
-  booking,
+  context,
   groupId,
   role,
   onDueDeleted,
@@ -52,7 +53,7 @@ export default function GroupOperatorDueList({
         <GroupOperatorDueCard
           key={due.id_due}
           due={due}
-          booking={booking}
+          context={context}
           groupId={groupId}
           operators={operators}
           role={role}

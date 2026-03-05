@@ -16,7 +16,6 @@ import { authFetch } from "@/utils/authFetch";
 
 import type {
   AttachableReceiptOption,
-  BookingOption,
   CurrencyCode,
   ReceiptPayload,
   ServiceLite,
@@ -34,11 +33,12 @@ import {
   resolveReceiptIdFrom,
 } from "@/utils/receipts/receiptForm";
 import { filterAccountsByCurrency } from "@/utils/receipts/accounts";
+import type { GroupFinanceContextOption } from "@/components/groups/finance/contextTypes";
 
 import { useFinancePicks } from "@/hooks/receipts/useFinancePicks";
-import { useBookingSearch } from "@/hooks/receipts/useBookingSearch";
-import { useServicesForBooking } from "@/hooks/receipts/useServicesForBooking";
-import { useReceiptSearch } from "@/hooks/receipts/useReceiptSearch";
+import { useGroupContextSearch } from "@/components/groups/collections/receipt-form/hooks/useGroupContextSearch";
+import { useGroupReceiptSearch } from "@/components/groups/collections/receipt-form/hooks/useGroupReceiptSearch";
+import { useServicesForGroupContext } from "@/components/groups/collections/receipt-form/hooks/useServicesForGroupContext";
 
 import {
   createCreditEntryForReceipt,
@@ -51,7 +51,7 @@ import GroupContextSection from "@/components/groups/collections/receipt-form/Gr
 import GroupAttachReceiptSection from "@/components/groups/collections/receipt-form/GroupAttachReceiptSection";
 import GroupCreateReceiptFields from "@/components/groups/collections/receipt-form/GroupCreateReceiptFields";
 
-type Mode = "agency" | "booking";
+type Mode = "agency" | "context";
 
 const CREDIT_METHOD = "Crédito operador";
 const VIRTUAL_CREDIT_METHOD_ID = 999_000_000;
@@ -271,11 +271,11 @@ export interface ReceiptFormProps {
   isFormVisible?: boolean;
   setIsFormVisible?: React.Dispatch<React.SetStateAction<boolean>>;
 
-  bookingId?: number;
+  contextId?: number;
   allowAgency?: boolean;
 
-  searchBookings?: (q: string) => Promise<BookingOption[]>;
-  loadServicesForBooking?: (bookingId: number) => Promise<ServiceLite[]>;
+  searchContexts?: (q: string) => Promise<GroupFinanceContextOption[]>;
+  loadServicesForContext?: (contextId: number) => Promise<ServiceLite[]>;
 
   initialServiceIds?: number[];
   initialConcept?: string;
@@ -293,6 +293,8 @@ export interface ReceiptFormProps {
   initialPaymentMethodId?: number | null;
   initialFinanceAccountId?: number | null;
   initialClientIds?: number[];
+  lockClientSelection?: boolean;
+  lockedClientLabel?: string | null;
   initialPayments?: ReceiptPaymentLine[];
 
   onSubmit: (payload: ReceiptPayload) => Promise<SubmitResult> | SubmitResult;
@@ -302,7 +304,7 @@ export interface ReceiptFormProps {
   searchReceipts?: (q: string) => Promise<AttachableReceiptOption[]>;
   onAttachExisting?: (args: {
     id_receipt: number;
-    bookingId: number;
+    contextId: number;
     serviceIds: number[];
   }) => Promise<void> | void;
 }
@@ -326,10 +328,10 @@ export default function GroupReceiptForm({
   editingReceiptId = null,
   isFormVisible,
   setIsFormVisible,
-  bookingId,
+  contextId,
   allowAgency = true,
-  searchBookings,
-  loadServicesForBooking,
+  searchContexts,
+  loadServicesForContext,
   initialServiceIds = [],
   initialConcept = "",
   initialAmount,
@@ -345,6 +347,8 @@ export default function GroupReceiptForm({
   initialPaymentMethodId = null,
   initialFinanceAccountId = null,
   initialClientIds = [],
+  lockClientSelection = false,
+  lockedClientLabel = null,
   initialPayments = [],
   onSubmit,
   onCancel,
@@ -400,40 +404,39 @@ export default function GroupReceiptForm({
   }, [paymentMethodsTyped]);
 
   /* ===== Mode ===== */
-  const forcedBookingMode = !!bookingId;
+  const forcedContextMode = !!contextId;
   const [mode, setMode] = useState<Mode>(
-    forcedBookingMode ? "booking" : "agency",
+    forcedContextMode ? "context" : "agency",
   );
 
   useEffect(() => {
-    if (forcedBookingMode) setMode("booking");
-  }, [forcedBookingMode]);
+    if (forcedContextMode) setMode("context");
+  }, [forcedContextMode]);
 
   useEffect(() => {
-    if (action === "attach") setMode("booking");
+    if (action === "attach") setMode("context");
   }, [action]);
 
   const canToggleAgency =
-    !forcedBookingMode && allowAgency && action !== "attach";
+    !forcedContextMode && allowAgency && action !== "attach";
 
-  /* ===== Booking ===== */
-  const [selectedBookingId, setSelectedBookingId] = useState<number | null>(
-    bookingId ?? null,
+  /* ===== Context ===== */
+  const [selectedContextId, setSelectedContextId] = useState<number | null>(
+    contextId ?? null,
   );
 
-  const bookingSearchEnabled = !forcedBookingMode && mode === "booking";
-  const { bookingQuery, setBookingQuery, bookingOptions, loadingBookings } =
-    useBookingSearch({
-      token,
-      enabled: bookingSearchEnabled,
-      searchBookings,
+  const contextSearchEnabled = !forcedContextMode && mode === "context";
+  const { contextQuery, setContextQuery, contextOptions, loadingContexts } =
+    useGroupContextSearch({
+      enabled: contextSearchEnabled,
+      searchContexts,
     });
 
   /* ===== Services ===== */
-  const { services, loadingServices } = useServicesForBooking({
-    bookingId: selectedBookingId,
-    loadServicesForBooking,
-    enabled: visible && mode === "booking",
+  const { services, loadingServices } = useServicesForGroupContext({
+    contextId: selectedContextId,
+    loadServicesForContext,
+    enabled: visible && mode === "context",
   });
 
   const [selectedServiceIds, setSelectedServiceIds] =
@@ -445,16 +448,16 @@ export default function GroupReceiptForm({
     );
   }, [services]);
 
-  const allBookingServiceIds = useMemo(
+  const allContextServiceIds = useMemo(
     () => services.map((s) => s.id_service),
     [services],
   );
 
   const serviceIdsForContext = useMemo(() => {
-    if (mode !== "booking" || !selectedBookingId) return selectedServiceIds;
+    if (mode !== "context" || !selectedContextId) return selectedServiceIds;
     if (selectedServiceIds.length > 0) return selectedServiceIds;
-    return allBookingServiceIds;
-  }, [mode, selectedBookingId, selectedServiceIds, allBookingServiceIds]);
+    return allContextServiceIds;
+  }, [mode, selectedContextId, selectedServiceIds, allContextServiceIds]);
 
   const userSelectedServices = useMemo(
     () => services.filter((s) => selectedServiceIds.includes(s.id_service)),
@@ -466,11 +469,11 @@ export default function GroupReceiptForm({
     [services, serviceIdsForContext],
   );
 
-  const selectedBookingDisplayId = useMemo(() => {
-    if (!selectedBookingId) return null;
-    const opt = bookingOptions.find((b) => b.id_booking === selectedBookingId);
-    return opt?.agency_booking_id ?? null;
-  }, [bookingOptions, selectedBookingId]);
+  const selectedContextDisplayId = useMemo(() => {
+    if (!selectedContextId) return null;
+    const opt = contextOptions.find((item) => item.id_context === selectedContextId);
+    return opt?.agency_context_id ?? null;
+  }, [contextOptions, selectedContextId]);
 
   const lockedCurrency = useMemo(() => {
     if (!userSelectedServices.length) return null;
@@ -498,8 +501,8 @@ export default function GroupReceiptForm({
     );
   };
 
-  const clearBookingContext = () => {
-    setSelectedBookingId(null);
+  const clearContextSelection = () => {
+    setSelectedContextId(null);
     setSelectedServiceIds([]);
   };
 
@@ -1239,31 +1242,31 @@ export default function GroupReceiptForm({
     return currency === "ARS" ? `$ ${num}` : `${num} ${currency}`;
   }, []);
 
-  const [bookingReceipts, setBookingReceipts] = useState<ReceiptForDebt[]>([]);
-  const [bookingReceiptsLoaded, setBookingReceiptsLoaded] = useState(false);
+  const [contextReceipts, setContextReceipts] = useState<ReceiptForDebt[]>([]);
+  const [contextReceiptsLoaded, setContextReceiptsLoaded] = useState(false);
 
   useEffect(() => {
-    if (!token || !selectedBookingId || mode !== "booking") {
-      setBookingReceipts([]);
-      setBookingReceiptsLoaded(false);
+    if (!token || !selectedContextId || mode !== "context") {
+      setContextReceipts([]);
+      setContextReceiptsLoaded(false);
       return;
     }
     if (groupId && !groupPassengerId) {
-      setBookingReceipts([]);
-      setBookingReceiptsLoaded(true);
+      setContextReceipts([]);
+      setContextReceiptsLoaded(true);
       return;
     }
 
     const ac = new AbortController();
     let alive = true;
-    setBookingReceiptsLoaded(false);
+    setContextReceiptsLoaded(false);
 
     (async () => {
       try {
         const useGroupReceipts = Boolean(groupId && groupPassengerId);
         const endpoint = useGroupReceipts
           ? `/api/groups/${encodeURIComponent(groupId as string)}/finance/receipts?passengerId=${groupPassengerId}`
-          : `/api/receipts?bookingId=${selectedBookingId}`;
+          : `/api/receipts?contextId=${selectedContextId}&bookingId=${selectedContextId}`;
         const res = await authFetch(
           endpoint,
           { cache: "no-store", signal: ac.signal },
@@ -1278,11 +1281,11 @@ export default function GroupReceiptForm({
           );
           return !Number.isFinite(receiptId) || receiptId !== editingReceiptId;
         });
-        if (alive) setBookingReceipts(list);
+        if (alive) setContextReceipts(list);
       } catch {
-        if (alive) setBookingReceipts([]);
+        if (alive) setContextReceipts([]);
       } finally {
-        if (alive) setBookingReceiptsLoaded(true);
+        if (alive) setContextReceiptsLoaded(true);
       }
     })();
 
@@ -1290,17 +1293,17 @@ export default function GroupReceiptForm({
       alive = false;
       ac.abort();
     };
-  }, [editingReceiptId, groupId, groupPassengerId, mode, selectedBookingId, token]);
+  }, [editingReceiptId, groupId, groupPassengerId, mode, selectedContextId, token]);
 
   const relevantReceipts = useMemo(() => {
-    if (!bookingReceipts.length || !serviceIdsForContext.length) return [];
+    if (!contextReceipts.length || !serviceIdsForContext.length) return [];
     const svcSet = new Set(serviceIdsForContext);
-    return bookingReceipts.filter((r) => {
+    return contextReceipts.filter((r) => {
       const ids = Array.isArray(r.serviceIds) ? r.serviceIds : [];
       if (!ids.length) return true;
       return ids.some((id) => svcSet.has(id));
     });
-  }, [bookingReceipts, serviceIdsForContext]);
+  }, [contextReceipts, serviceIdsForContext]);
 
   const serviceById = useMemo(() => {
     const out = new Map<number, ServiceLite>();
@@ -1311,12 +1314,12 @@ export default function GroupReceiptForm({
   }, [services]);
 
   const serviceDisabledReasons = useMemo(() => {
-    if (!bookingReceiptsLoaded || mode !== "booking" || services.length === 0) {
+    if (!contextReceiptsLoaded || mode !== "context" || services.length === 0) {
       return {} as Record<number, string>;
     }
 
     const paidByServiceId: Record<number, number> = {};
-    bookingReceipts.forEach((receipt) => {
+    contextReceipts.forEach((receipt) => {
       const refs = Array.isArray(receipt.serviceIds)
         ? Array.from(
             new Set(
@@ -1370,10 +1373,10 @@ export default function GroupReceiptForm({
 
     return reasons;
   }, [
-    bookingReceiptsLoaded,
+    contextReceiptsLoaded,
     mode,
     services,
-    bookingReceipts,
+    contextReceipts,
     serviceById,
     toNum,
   ]);
@@ -1451,7 +1454,7 @@ export default function GroupReceiptForm({
   }, [salesByCurrency, paidByCurrency, currentPaidByCurrency]);
 
   const debtSuffix = useMemo(() => {
-    if (!serviceIdsForContext.length || !bookingReceiptsLoaded) return "";
+    if (!serviceIdsForContext.length || !contextReceiptsLoaded) return "";
     const parts = Object.entries(debtByCurrency)
       .filter(([, v]) => v > 0.01)
       .map(([cur, v]) => formatDebtLabel(v, cur));
@@ -1460,22 +1463,23 @@ export default function GroupReceiptForm({
     return `-ADEUDA ${parts.join(" y ")}`;
   }, [
     serviceIdsForContext,
-    bookingReceiptsLoaded,
+    contextReceiptsLoaded,
     debtByCurrency,
     formatDebtLabel,
   ]);
 
   const paymentDescriptionAuto = useMemo(() => {
     if (!paymentSummary.trim()) return "";
-    const hasBookingContext = !!selectedBookingId && serviceIdsForContext.length > 0;
-    if (hasBookingContext && !bookingReceiptsLoaded) return paymentSummary;
-    const suffix = hasBookingContext ? debtSuffix.trim() : "";
+    const hasContextSelection =
+      !!selectedContextId && serviceIdsForContext.length > 0;
+    if (hasContextSelection && !contextReceiptsLoaded) return paymentSummary;
+    const suffix = hasContextSelection ? debtSuffix.trim() : "";
     return suffix ? `${paymentSummary} ${suffix}` : paymentSummary;
   }, [
     paymentSummary,
-    selectedBookingId,
+    selectedContextId,
     serviceIdsForContext,
-    bookingReceiptsLoaded,
+    contextReceiptsLoaded,
     debtSuffix,
   ]);
 
@@ -1483,7 +1487,7 @@ export default function GroupReceiptForm({
     if (editingReceiptId) return;
     setPaymentDescriptionState("");
     setPaymentDescriptionDirty(false);
-  }, [selectedBookingId, mode, editingReceiptId]);
+  }, [selectedContextId, mode, editingReceiptId]);
 
   useEffect(() => {
     if (paymentDescriptionDirty) return;
@@ -1505,6 +1509,27 @@ export default function GroupReceiptForm({
           (_, i) => initialClientIds?.[i] ?? null,
         ),
   );
+  const normalizedLockedClientId = useMemo(() => {
+    if (!lockClientSelection) return null;
+    const raw = Number(initialClientIds?.[0] ?? 0);
+    return Number.isFinite(raw) && raw > 0 ? raw : null;
+  }, [initialClientIds, lockClientSelection]);
+
+  useEffect(() => {
+    if (!lockClientSelection || !normalizedLockedClientId) return;
+    if (clientsCount !== 1) {
+      setClientsCount(1);
+    }
+    const currentId = Number(clientIds[0] ?? 0);
+    if (clientIds.length !== 1 || currentId !== normalizedLockedClientId) {
+      setClientIds([normalizedLockedClientId]);
+    }
+  }, [
+    clientIds,
+    clientsCount,
+    lockClientSelection,
+    normalizedLockedClientId,
+  ]);
 
   const onIncClient = () => {
     setClientsCount((c) => c + 1);
@@ -1541,8 +1566,10 @@ export default function GroupReceiptForm({
   /* ===== Attach search ===== */
   const attachSearchEnabled = attachEnabled && action === "attach";
   const { receiptQuery, setReceiptQuery, receiptOptions, loadingReceipts } =
-    useReceiptSearch({
+    useGroupReceiptSearch({
       token,
+      groupId,
+      groupPassengerId,
       enabled: attachSearchEnabled,
       searchReceipts,
     });
@@ -1556,10 +1583,10 @@ export default function GroupReceiptForm({
   const validateCreate = () => {
     const e: Record<string, string> = {};
 
-    if (mode === "booking") {
-      if (!selectedBookingId) e.booking = "Elegí una reserva.";
+    if (mode === "context") {
+      if (!selectedContextId) e.context = "Elegi un contexto operativo.";
       if (requireServiceSelection && serviceIdsForContext.length === 0)
-        e.services = "Seleccioná al menos un servicio.";
+        e.services = "Selecciona al menos un servicio.";
     }
 
     if (!paymentLines.length) {
@@ -1642,7 +1669,7 @@ export default function GroupReceiptForm({
     }
 
     if (
-      mode === "booking" &&
+      mode === "context" &&
       hasMixedPaymentCurrencies &&
       (!baseNum || baseNum <= 0 || !baseCurrency)
     ) {
@@ -1677,10 +1704,10 @@ export default function GroupReceiptForm({
 
   const validateAttach = () => {
     const e: Record<string, string> = {};
-    if (!selectedReceiptId) e.receipt = "Elegí un recibo.";
-    if (!selectedBookingId) e.booking = "Elegí una reserva.";
+    if (!selectedReceiptId) e.receipt = "Elegi un recibo.";
+    if (!selectedContextId) e.context = "Elegi un contexto operativo.";
     if (requireServiceSelection && serviceIdsForContext.length === 0)
-      e.services = "Seleccioná al menos un servicio.";
+      e.services = "Selecciona al menos un servicio.";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -1689,11 +1716,11 @@ export default function GroupReceiptForm({
   const [submitting, setSubmitting] = useState(false);
 
   const handleAttachExisting = async () => {
-    if (!token || !selectedReceiptId || !selectedBookingId) return;
+    if (!token || !selectedReceiptId || !selectedContextId) return;
     if (onAttachExisting) {
       await onAttachExisting({
         id_receipt: selectedReceiptId,
-        bookingId: selectedBookingId,
+        contextId: selectedContextId,
         serviceIds: serviceIdsForContext,
       });
       return;
@@ -1701,7 +1728,7 @@ export default function GroupReceiptForm({
     await attachExistingReceipt({
       token,
       receiptId: selectedReceiptId,
-      bookingId: selectedBookingId,
+      bookingId: selectedContextId,
       serviceIds: serviceIdsForContext,
     });
   };
@@ -1839,11 +1866,21 @@ export default function GroupReceiptForm({
         ? effectiveCurrency
         : undefined;
     const normalizedConcept = (concept ?? "").trim() || "Cobro de grupal";
+    const payloadClientIds = clientIds.filter(
+      (v): v is number => typeof v === "number" && Number.isFinite(v),
+    );
+    if (
+      lockClientSelection &&
+      normalizedLockedClientId &&
+      !payloadClientIds.includes(normalizedLockedClientId)
+    ) {
+      payloadClientIds.splice(0, payloadClientIds.length, normalizedLockedClientId);
+    }
 
     const apiBody: ReceiptPayload = {
-      ...(mode === "booking" && selectedBookingId
+      ...(mode === "context" && selectedContextId
         ? {
-            booking: { id_booking: selectedBookingId },
+            booking: { id_booking: selectedContextId },
             serviceIds: serviceIdsForContext,
           }
         : {}),
@@ -1856,9 +1893,7 @@ export default function GroupReceiptForm({
 
       payment_fee_amount: paymentFeeForPayload,
 
-      clientIds: clientIds.filter(
-        (v): v is number => typeof v === "number" && Number.isFinite(v),
-      ),
+      clientIds: payloadClientIds,
 
       payment_method:
         singleMethodName ||
@@ -1922,7 +1957,7 @@ export default function GroupReceiptForm({
                 amount: p.amount,
                 currency: p.payment_currency || apiBody.amountCurrency || "ARS",
                 concept: apiBody.concept,
-                bookingId: selectedBookingId ?? bookingId ?? undefined,
+                bookingId: selectedContextId ?? contextId ?? undefined,
                 operatorId: opId,
                 agencyId,
                 creditAccountId: caId,
@@ -1948,7 +1983,7 @@ export default function GroupReceiptForm({
               amount: p.amount,
               currency: p.payment_currency || apiBody.amountCurrency || "ARS",
               concept: apiBody.concept,
-              bookingId: selectedBookingId ?? bookingId ?? undefined,
+              bookingId: selectedContextId ?? contextId ?? undefined,
               agencyId,
             });
           } catch (err) {
@@ -2021,7 +2056,7 @@ export default function GroupReceiptForm({
         editingReceiptId={editingReceiptId}
         action={action}
         mode={mode}
-        selectedBookingDisplayId={selectedBookingDisplayId}
+        selectedContextDisplayId={selectedContextDisplayId}
         selectedServiceCount={serviceIdsForContext.length}
         effectiveCurrency={effectiveCurrency}
         lockedCurrency={lockedCurrency}
@@ -2048,15 +2083,15 @@ export default function GroupReceiptForm({
                 canToggleAgency={canToggleAgency}
                 mode={mode}
                 setMode={setMode}
-                clearBookingContext={clearBookingContext}
-                forcedBookingMode={forcedBookingMode}
-                bookingId={bookingId}
-                bookingQuery={bookingQuery}
-                setBookingQuery={setBookingQuery}
-                bookingOptions={bookingOptions}
-                loadingBookings={loadingBookings}
-                selectedBookingId={selectedBookingId}
-                setSelectedBookingId={setSelectedBookingId}
+                clearContextSelection={clearContextSelection}
+                forcedContextMode={forcedContextMode}
+                contextId={contextId}
+                contextQuery={contextQuery}
+                setContextQuery={setContextQuery}
+                contextOptions={contextOptions}
+                loadingContexts={loadingContexts}
+                selectedContextId={selectedContextId}
+                setSelectedContextId={setSelectedContextId}
                 services={services}
                 loadingServices={loadingServices}
                 selectedServiceIds={selectedServiceIds}
@@ -2088,6 +2123,8 @@ export default function GroupReceiptForm({
                   setIssueDate={setIssueDate}
                   clientsCount={clientsCount}
                   clientIds={clientIds}
+                  lockClientSelection={lockClientSelection}
+                  lockedClientLabel={lockedClientLabel}
                   onIncClient={onIncClient}
                   onDecClient={onDecClient}
                   setClientAt={setClientAt}

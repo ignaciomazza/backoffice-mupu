@@ -359,6 +359,8 @@ interface InvoiceFormProps {
   token?: string | null;
   collapsible?: boolean;
   containerClassName?: string;
+  lockClientSelection?: boolean;
+  lockedClientLabel?: string | null;
 }
 
 export default function GroupInvoiceForm({
@@ -373,6 +375,8 @@ export default function GroupInvoiceForm({
   token,
   collapsible = true,
   containerClassName = "",
+  lockClientSelection = false,
+  lockedClientLabel = null,
 }: InvoiceFormProps) {
   const showForm = collapsible ? isFormVisible : true;
 
@@ -516,6 +520,13 @@ export default function GroupInvoiceForm({
   const [clientCount, setClientCount] = useState<number>(
     Math.max(1, formData.clientIds?.length || 1),
   );
+
+  useEffect(() => {
+    if (!lockClientSelection) return;
+    if (clientCount !== 1) {
+      setClientCount(1);
+    }
+  }, [clientCount, lockClientSelection]);
 
   // Mantener formData.clientIds con el tamaño elegido
   useEffect(() => {
@@ -1833,20 +1844,35 @@ export default function GroupInvoiceForm({
               </Field>
             </Section>
 
-            <Section title="Pasajeros" desc="Agregá uno o más destinatarios.">
-              <Field id="clientCount" label="Cantidad de pasajeros" required>
-                <input
-                  id="clientCount"
-                  type="number"
-                  value={clientCount}
-                  min={1}
-                  onChange={(e) =>
-                    setClientCount(Math.max(1, Number(e.target.value) || 1))
-                  }
-                  placeholder="Cantidad de pasajeros..."
-                  className={inputBase}
-                />
-              </Field>
+            <Section
+              title={lockClientSelection ? "Pasajero" : "Pasajeros"}
+              desc={
+                lockClientSelection
+                  ? "La factura se emite al pasajero activo."
+                  : "Agregá uno o más destinatarios."
+              }
+            >
+              {!lockClientSelection ? (
+                <Field id="clientCount" label="Cantidad de pasajeros" required>
+                  <input
+                    id="clientCount"
+                    type="number"
+                    value={clientCount}
+                    min={1}
+                    onChange={(e) =>
+                      setClientCount(Math.max(1, Number(e.target.value) || 1))
+                    }
+                    placeholder="Cantidad de pasajeros..."
+                    className={inputBase}
+                  />
+                </Field>
+              ) : (
+                <div className="rounded-2xl border border-emerald-300/70 bg-emerald-50/35 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-500/70 dark:bg-emerald-900/20 dark:text-emerald-100 md:col-span-2">
+                  <span className="font-semibold">
+                    {lockedClientLabel || "Pasajero activo"}
+                  </span>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 gap-3 md:col-span-2">
                 {Array.from({ length: clientCount }).map((_, idx) => (
@@ -1854,22 +1880,28 @@ export default function GroupInvoiceForm({
                     key={idx}
                     className="rounded-2xl border border-sky-300/70 bg-white p-3 dark:border-sky-600/30 dark:bg-sky-950/10"
                   >
-                    <ClientPicker
-                      token={token}
-                      label={`Pax ${idx + 1}`}
-                      placeholder="Buscar por Nº interno, DNI, Pasaporte, CUIT o nombre..."
-                      valueId={
-                        formData.clientIds?.[idx]
-                          ? parseInt(formData.clientIds[idx]!, 10)
-                          : null
-                      }
-                      excludeIds={excludeForIndex(idx)}
-                      onSelect={(c) => setClientAt(idx, c)}
-                      onClear={() => setClientAt(idx, null)}
-                      required
-                    />
+                    {!lockClientSelection ? (
+                      <ClientPicker
+                        token={token}
+                        label={`Pax ${idx + 1}`}
+                        placeholder="Buscar por Nº interno, DNI, Pasaporte, CUIT o nombre..."
+                        valueId={
+                          formData.clientIds?.[idx]
+                            ? parseInt(formData.clientIds[idx]!, 10)
+                            : null
+                        }
+                        excludeIds={excludeForIndex(idx)}
+                        onSelect={(c) => setClientAt(idx, c)}
+                        onClear={() => setClientAt(idx, null)}
+                        required
+                      />
+                    ) : null}
 
-                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <div
+                      className={`grid grid-cols-1 gap-3 md:grid-cols-3 ${
+                        lockClientSelection ? "" : "mt-3"
+                      }`}
+                    >
                       <Field id={`paxDocType-${idx}`} label="Tipo doc">
                         <select
                           id={`paxDocType-${idx}`}
@@ -2370,7 +2402,7 @@ export default function GroupInvoiceForm({
                   ) : (
                     <ul className="mt-2 space-y-1">
                       {selectedServices.map((svc) => (
-                        <li key={`reservation-detail-${svc.id_service}`}>
+                        <li key={`scope-detail-${svc.id_service}`}>
                           Nº {formatAgencyNumber(svc.agency_service_id)} ·{" "}
                           {svc.type} · {svc.description || "Sin descripción"}
                         </li>

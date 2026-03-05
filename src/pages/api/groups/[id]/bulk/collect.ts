@@ -24,6 +24,17 @@ type Body = {
   account_id?: unknown;
 };
 
+type GroupPaymentRow = {
+  id_travel_group_client_payment: number;
+  travel_group_passenger_id: number;
+  travel_group_departure_id: number | null;
+  client_id: number;
+  service_ref: string | null;
+  amount: Prisma.Decimal;
+  currency: string;
+  status: string;
+};
+
 function pickParam(value: string | string[] | undefined): string | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] : value;
@@ -53,6 +64,15 @@ function toPositiveInt(value: unknown): number | null {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.trunc(n);
+}
+
+function toServiceIds(items: GroupPaymentRow[]): number[] {
+  const unique = new Set<number>();
+  for (const item of items) {
+    const serviceId = Number(String(item.service_ref ?? "").trim());
+    if (Number.isFinite(serviceId) && serviceId > 0) unique.add(serviceId);
+  }
+  return Array.from(unique);
 }
 
 export default async function handler(
@@ -154,6 +174,40 @@ export default async function handler(
     });
   }
 
+  const [paymentMethod, account] = await Promise.all([
+    paymentMethodId
+      ? prisma.financePaymentMethod.findFirst({
+          where: {
+            id_method: paymentMethodId,
+            id_agency: auth.id_agency,
+          },
+          select: { id_method: true, name: true },
+        })
+      : Promise.resolve(null),
+    accountId
+      ? prisma.financeAccount.findFirst({
+          where: {
+            id_account: accountId,
+            id_agency: auth.id_agency,
+          },
+          select: { id_account: true, name: true },
+        })
+      : Promise.resolve(null),
+  ]);
+
+  if (paymentMethodId && !paymentMethod) {
+    return groupApiError(res, 400, "El método de cobro indicado es inválido.", {
+      code: "GROUP_COLLECT_METHOD_INVALID",
+      solution: "Seleccioná un método de cobro válido de tu agencia.",
+    });
+  }
+  if (accountId && !account) {
+    return groupApiError(res, 400, "La cuenta indicada es inválida.", {
+      code: "GROUP_COLLECT_ACCOUNT_INVALID",
+      solution: "Seleccioná una cuenta válida de tu agencia.",
+    });
+  }
+
   let paymentIds = paymentIdsFromBody;
   if (paymentIds.length === 0 && passengerIdsFromBody.length > 0) {
     const passengers = await prisma.travelGroupPassenger.findMany({
@@ -162,7 +216,7 @@ export default async function handler(
         travel_group_id: group.id_travel_group,
         id_travel_group_passenger: { in: passengerIdsFromBody },
       },
-      select: { booking_id: true, client_id: true },
+      select: { id_travel_group_passenger: true },
     });
     if (passengers.length === 0) {
       return groupApiError(
@@ -176,40 +230,18 @@ export default async function handler(
       );
     }
 
-    const pairs = passengers
-      .filter(
-        (item): item is { booking_id: number; client_id: number } =>
-          typeof item.booking_id === "number" &&
-          item.booking_id > 0 &&
-          typeof item.client_id === "number" &&
-          item.client_id > 0,
-      )
-      .map((item) => ({ booking_id: item.booking_id, client_id: item.client_id }));
-
-    if (pairs.length === 0) {
-      return groupApiError(
-        res,
-        400,
-        "Los pasajeros seleccionados no tienen pagos asociables.",
-        {
-          code: "GROUP_COLLECT_NO_ASSOCIATED_PAYMENTS",
-          solution: "Verificá que tengan reservas y cuotas pendientes.",
-        },
-      );
-    }
-
-    const pending = await prisma.clientPayment.findMany({
+    const pending = await prisma.travelGroupClientPayment.findMany({
       where: {
         id_agency: auth.id_agency,
+        travel_group_id: group.id_travel_group,
         status: "PENDIENTE",
-        OR: pairs.map((pair) => ({
-          booking_id: pair.booking_id,
-          client_id: pair.client_id,
-        })),
+        travel_group_passenger_id: {
+          in: passengers.map((item) => item.id_travel_group_passenger),
+        },
       },
-      select: { id_payment: true },
+      select: { id_travel_group_client_payment: true },
     });
-    paymentIds = pending.map((item) => item.id_payment);
+    paymentIds = pending.map((item) => item.id_travel_group_client_payment);
   }
 
   if (paymentIds.length === 0) {
@@ -224,18 +256,21 @@ export default async function handler(
     );
   }
 
-  const payments = await prisma.clientPayment.findMany({
+  const payments = await prisma.travelGroupClientPayment.findMany({
     where: {
       id_agency: auth.id_agency,
-      id_payment: { in: paymentIds },
+      id_travel_group_client_payment: { in: paymentIds },
     },
-    include: {
-      booking: {
-        select: {
-          id_booking: true,
-          travel_group_id: true,
-        },
-      },
+    select: {
+      id_travel_group_client_payment: true,
+      travel_group_passenger_id: true,
+      travel_group_departure_id: true,
+      client_id: true,
+      service_ref: true,
+      amount: true,
+      currency: true,
+      status: true,
+      travel_group_id: true,
     },
   });
   if (payments.length !== paymentIds.length) {
@@ -246,7 +281,7 @@ export default async function handler(
   }
 
   for (const payment of payments) {
-    if (payment.booking?.travel_group_id !== group.id_travel_group) {
+    if (payment.travel_group_id !== group.id_travel_group) {
       return groupApiError(
         res,
         400,
@@ -273,24 +308,23 @@ export default async function handler(
   const buckets = new Map<
     string,
     {
-      booking_id: number;
+      travel_group_passenger_id: number;
+      travel_group_departure_id: number | null;
       client_id: number;
       currency: string;
-      payments: typeof payments;
+      payments: GroupPaymentRow[];
     }
   >();
 
   for (const payment of payments) {
-    const bookingId = payment.booking_id;
-    const clientId = payment.client_id;
-    const currency = String(payment.currency || "").toUpperCase();
-    const key = `${bookingId}::${clientId}::${currency}`;
+    const key = `${payment.travel_group_passenger_id}::${payment.client_id}::${payment.currency}`;
     const current = buckets.get(key);
     if (!current) {
       buckets.set(key, {
-        booking_id: bookingId,
-        client_id: clientId,
-        currency,
+        travel_group_passenger_id: payment.travel_group_passenger_id,
+        travel_group_departure_id: payment.travel_group_departure_id,
+        client_id: payment.client_id,
+        currency: payment.currency,
         payments: [payment],
       });
     } else {
@@ -302,7 +336,7 @@ export default async function handler(
   const paidAt = issueDate ?? now;
   let settledCount = 0;
   const receiptsCreated: Array<{
-    booking_id: number;
+    travel_group_passenger_id: number;
     client_id: number;
     currency: string;
     receipt_id: number | null;
@@ -322,83 +356,59 @@ export default async function handler(
           const agencyReceiptId = await getNextAgencyCounter(
             tx,
             auth.id_agency,
-            "receipt",
+            "travel_group_receipt",
           );
-          const receipt = await tx.receipt.create({
+          const created = await tx.travelGroupReceipt.create({
             data: {
-              agency_receipt_id: agencyReceiptId,
-              receipt_number: `A${auth.id_agency}-${agencyReceiptId}`,
+              agency_travel_group_receipt_id: agencyReceiptId,
+              id_agency: auth.id_agency,
+              travel_group_id: group.id_travel_group,
+              travel_group_departure_id: bucket.travel_group_departure_id,
+              travel_group_passenger_id: bucket.travel_group_passenger_id,
+              client_id: bucket.client_id,
               issue_date: paidAt,
-              amount: total.toNumber(),
+              amount: total,
               amount_string: amountString,
               amount_currency: bucket.currency,
               concept,
               currency: bucket.currency,
+              payment_method: paymentMethod?.name ?? null,
               payment_fee_amount:
                 feeAmountRaw == null ? null : new Prisma.Decimal(feeAmountRaw),
-              payment_method_id: paymentMethodId,
-              account_id: accountId ?? null,
-              bookingId_booking: bucket.booking_id,
-              id_agency: auth.id_agency,
-              clientIds: [bucket.client_id],
-              serviceIds: Array.from(
-                new Set(
-                  bucket.payments
-                    .map((item) => item.service_id)
-                    .filter((id): id is number => typeof id === "number" && id > 0),
-                ),
-              ),
-              payments: {
-                create: [
-                  {
-                    amount: total,
-                    payment_method_id: paymentMethodId!,
-                    account_id: accountId ?? null,
-                  },
-                ],
-              },
+              account: account?.name ?? null,
+              client_ids: [bucket.client_id],
+              service_refs: toServiceIds(bucket.payments),
             },
-            select: { id_receipt: true },
+            select: { id_travel_group_receipt: true },
           });
-          createdReceiptId = receipt.id_receipt;
+          createdReceiptId = created.id_travel_group_receipt;
         }
 
-        await tx.clientPayment.updateMany({
-          where: { id_payment: { in: bucket.payments.map((item) => item.id_payment) } },
+        await tx.travelGroupClientPayment.updateMany({
+          where: {
+            id_agency: auth.id_agency,
+            travel_group_id: group.id_travel_group,
+            id_travel_group_client_payment: {
+              in: bucket.payments.map((item) => item.id_travel_group_client_payment),
+            },
+          },
           data: {
             status: "PAGADA",
             paid_at: paidAt,
             paid_by: auth.id_user,
             receipt_id: createdReceiptId,
             status_reason: "Cobro masivo de grupal",
+            updated_at: new Date(),
           },
         });
 
-        for (const payment of bucket.payments) {
-          await tx.clientPaymentAudit.create({
-            data: {
-              client_payment_id: payment.id_payment,
-              id_agency: auth.id_agency,
-              action: "STATUS_CHANGED",
-              from_status: payment.status,
-              to_status: "PAGADA",
-              reason: "Cobro masivo grupal",
-              changed_by: auth.id_user,
-              data: {
-                group_id: group.id_travel_group,
-                receipt_id: createdReceiptId,
-              },
-            },
-          });
-        }
-
         settledCount += bucket.payments.length;
         receiptsCreated.push({
-          booking_id: bucket.booking_id,
+          travel_group_passenger_id: bucket.travel_group_passenger_id,
           client_id: bucket.client_id,
           currency: bucket.currency,
           receipt_id: createdReceiptId,
-          payment_ids: bucket.payments.map((item) => item.id_payment),
+          payment_ids: bucket.payments.map((item) => item.id_travel_group_client_payment),
         });
       }
     });

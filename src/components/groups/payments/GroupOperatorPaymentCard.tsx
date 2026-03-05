@@ -24,8 +24,10 @@ export type InvestmentItem = {
   paid_at?: string | null;
   operator_id?: number | null;
   user_id?: number | null;
+  context_id?: number | null;
   booking_id?: number | null;
   serviceIds?: number[] | null;
+  context?: { id_context: number; agency_context_id?: number | null } | null;
   booking?: { id_booking: number; agency_booking_id?: number | null } | null;
   operator?: OperatorLite | null;
   user?: UserLite | null;
@@ -91,7 +93,16 @@ function GroupOperatorPaymentCard({
     () => fmtMoney(item.amount, item.currency),
     [item.amount, item.currency],
   );
-  const bookingNumber = formatAgencyNumber(item.booking?.agency_booking_id);
+  const contextMeta = item.context
+    ? item.context
+    : item.booking
+      ? {
+          id_context: item.booking.id_booking,
+          agency_context_id: item.booking.agency_booking_id ?? null,
+        }
+      : null;
+  const contextNumber = formatAgencyNumber(contextMeta?.agency_context_id);
+  const contextRef = item.context_id ?? item.booking_id;
   const paymentDisplayId = formatAgencyNumber(item.agency_investment_id);
   const paymentFileId = useMemo(() => {
     if (
@@ -166,7 +177,7 @@ function GroupOperatorPaymentCard({
           </h3>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 md:text-xs">
             Nº {paymentDisplayId}
-            {item.booking_id ? ` · Grupal Nº ${bookingNumber}` : ""}
+            {contextRef ? ` · Grupal Nº ${contextNumber}` : ""}
           </p>
         </div>
         <div className="flex items-center gap-3">

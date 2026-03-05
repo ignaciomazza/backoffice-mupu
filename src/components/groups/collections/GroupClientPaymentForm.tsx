@@ -9,7 +9,11 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-import type { Booking } from "@/types";
+import {
+  resolveGroupFinanceContextAgencyId,
+  resolveGroupFinanceContextId,
+  type GroupFinanceContext,
+} from "@/components/groups/finance/contextTypes";
 import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
 import { authFetch } from "@/utils/authFetch";
@@ -22,7 +26,7 @@ import { formatMoneyInput, shouldPreferDotDecimal } from "@/utils/moneyInput";
 
 type Props = {
   token: string | null;
-  booking: Booking;
+  context: GroupFinanceContext;
   groupId?: string;
   groupPassengerId?: number | null;
   groupDepartureId?: number | null;
@@ -131,7 +135,7 @@ const formatAgencyNumber = (value: number | null | undefined): string => {
 
 export default function GroupClientPaymentForm({
   token,
-  booking,
+  context,
   groupId,
   groupPassengerId = null,
   groupDepartureId = null,
@@ -139,14 +143,17 @@ export default function GroupClientPaymentForm({
   defaultClientId = null,
   lockClient = false,
 }: Props) {
+  const contextId = resolveGroupFinanceContextId(context);
+  const contextAgencyId = resolveGroupFinanceContextAgencyId(context);
+
   const [isFormVisible, setIsFormVisible] = useState(false);
 
   // Pax que paga (prefill: titular al abrir)
   const [payerClientId, setPayerClientId] = useState<number | null>(null);
   const [serviceId, setServiceId] = useState<number | null>(null);
 
-  const bookingPaxOptions = useMemo(() => {
-    const items = [booking.titular, ...(booking.clients ?? [])];
+  const contextPaxOptions = useMemo(() => {
+    const items = [context.titular, ...(context.clients ?? [])];
     const unique = new Map<number, { id: number; label: string }>();
 
     for (const pax of items) {
@@ -161,47 +168,47 @@ export default function GroupClientPaymentForm({
     }
 
     return Array.from(unique.values());
-  }, [booking.titular, booking.clients]);
+  }, [context.titular, context.clients]);
 
   const lockedPayerOption = useMemo(() => {
     if (!lockClient) return null;
     const raw = Number(defaultClientId);
     if (!Number.isFinite(raw) || raw <= 0) return null;
     const normalized = Math.trunc(raw);
-    if (bookingPaxOptions.some((opt) => opt.id === normalized)) return null;
+    if (contextPaxOptions.some((opt) => opt.id === normalized)) return null;
     return {
       id: normalized,
       label: "Pax bloqueado · Sin Nº",
     };
-  }, [bookingPaxOptions, defaultClientId, lockClient]);
+  }, [contextPaxOptions, defaultClientId, lockClient]);
 
   const payerOptions = useMemo(() => {
-    if (!lockedPayerOption) return bookingPaxOptions;
-    return [lockedPayerOption, ...bookingPaxOptions];
-  }, [bookingPaxOptions, lockedPayerOption]);
+    if (!lockedPayerOption) return contextPaxOptions;
+    return [lockedPayerOption, ...contextPaxOptions];
+  }, [contextPaxOptions, lockedPayerOption]);
 
-  const bookingServiceOptions = useMemo(() => {
-    const services = Array.isArray(booking.services) ? booking.services : [];
+  const contextServiceOptions = useMemo(() => {
+    const services = Array.isArray(context.services) ? context.services : [];
     return services.map((svc) => {
       const code = formatAgencyNumber(svc.agency_service_id);
       const title = svc.description || svc.type || `Servicio ${code}`;
       return { id: svc.id_service, label: `${title} · Nº ${code}` };
     });
-  }, [booking.services]);
+  }, [context.services]);
 
   const normalizedDefaultClientId = useMemo(() => {
     const raw = Number(defaultClientId);
     if (Number.isFinite(raw) && raw > 0) {
       const normalized = Math.trunc(raw);
-      if (lockClient || bookingPaxOptions.some((opt) => opt.id === normalized)) {
+      if (lockClient || contextPaxOptions.some((opt) => opt.id === normalized)) {
         return normalized;
       }
     }
-    return booking.titular?.id_client ?? null;
+    return context.titular?.id_client ?? null;
   }, [
     defaultClientId,
-    bookingPaxOptions,
-    booking.titular?.id_client,
+    contextPaxOptions,
+    context.titular?.id_client,
     lockClient,
   ]);
 
@@ -240,17 +247,17 @@ export default function GroupClientPaymentForm({
   useEffect(() => {
     if (lockClient) return;
     if (payerClientId == null) return;
-    const exists = bookingPaxOptions.some((opt) => opt.id === payerClientId);
+    const exists = contextPaxOptions.some((opt) => opt.id === payerClientId);
     if (!exists) {
       setPayerClientId(normalizedDefaultClientId);
     }
-  }, [payerClientId, bookingPaxOptions, normalizedDefaultClientId, lockClient]);
+  }, [payerClientId, contextPaxOptions, normalizedDefaultClientId, lockClient]);
 
   useEffect(() => {
     if (serviceId == null) return;
-    const exists = bookingServiceOptions.some((opt) => opt.id === serviceId);
+    const exists = contextServiceOptions.some((opt) => opt.id === serviceId);
     if (!exists) setServiceId(null);
-  }, [serviceId, bookingServiceOptions]);
+  }, [serviceId, contextServiceOptions]);
 
   // Mantener arrays en sync con 'count'
   useEffect(() => {
@@ -359,7 +366,7 @@ export default function GroupClientPaymentForm({
       toast.error("Seleccioná el pax que paga.");
       return;
     }
-    if (!lockClient && !bookingPaxOptions.some((opt) => opt.id === payerClientId)) {
+    if (!lockClient && !contextPaxOptions.some((opt) => opt.id === payerClientId)) {
       toast.error("El pax seleccionado no pertenece a la grupal.");
       return;
     }
@@ -447,7 +454,7 @@ export default function GroupClientPaymentForm({
           payload.departureId = Number(groupDepartureId);
         }
       } else {
-        payload.bookingId = booking.id_booking;
+        if (contextId) payload.bookingId = contextId;
       }
       const res = await authFetch(
         endpoint,
@@ -543,7 +550,7 @@ export default function GroupClientPaymentForm({
                 {isFormVisible ? "Plan de pagos" : "Cargar plan de pagos"}
               </p>
               <p className="text-[11px] text-slate-600 dark:text-slate-400 md:text-xs">
-                Grupal Nº {formatAgencyNumber(booking.agency_booking_id)}
+                Grupal Nº {formatAgencyNumber(contextAgencyId)}
               </p>
             </div>
           </div>
@@ -611,7 +618,7 @@ export default function GroupClientPaymentForm({
                     }
                   >
                     <option value="">General de la grupal</option>
-                    {bookingServiceOptions.map((opt) => (
+                    {contextServiceOptions.map((opt) => (
                       <option key={opt.id} value={opt.id}>
                         {opt.label}
                       </option>

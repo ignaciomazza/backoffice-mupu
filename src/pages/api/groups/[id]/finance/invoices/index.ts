@@ -13,6 +13,7 @@ import {
   toAmountNumber,
   toDecimal,
 } from "@/lib/groups/financeShared";
+import { decodeInventoryServiceId } from "@/lib/groups/inventoryServiceRefs";
 
 type GroupInvoiceRow = {
   id_travel_group_invoice: number;
@@ -32,6 +33,7 @@ type GroupInvoiceRow = {
 };
 
 function buildInvoiceResponse(row: GroupInvoiceRow) {
+  const contextId = row.booking_id ?? 0;
   return {
     id_invoice: row.id_travel_group_invoice,
     agency_invoice_id: row.agency_travel_group_invoice_id,
@@ -45,7 +47,8 @@ function buildInvoiceResponse(row: GroupInvoiceRow) {
     total_amount: toAmountNumber(row.total_amount),
     status: row.status,
     type: row.type,
-    bookingId_booking: row.booking_id ?? 0,
+    context_id: contextId,
+    bookingId_booking: contextId,
     currency: normalizeCurrencyCode(row.currency),
     recipient: row.recipient,
     client_id: row.client_id,
@@ -235,20 +238,72 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   let currency = "ARS";
   let servicesTotal = new Prisma.Decimal(0);
   if (serviceIds.length > 0) {
-    const services = await prisma.service.findMany({
-      where: {
-        id_service: { in: serviceIds },
-        id_agency: ctx.auth.id_agency,
-      },
-      select: { sale_price: true, currency: true },
-    });
-    if (services.length > 0) {
-      currency = normalizeCurrencyCode(services[0].currency);
-      servicesTotal = services.reduce(
-        (acc, item) => acc.plus(toDecimal(item.sale_price ?? 0)),
-        new Prisma.Decimal(0),
-      );
+    const regularServiceIds: number[] = [];
+    const inventoryServiceIds: number[] = [];
+    for (const serviceId of serviceIds) {
+      const inventoryId = decodeInventoryServiceId(serviceId);
+      if (inventoryId) {
+        inventoryServiceIds.push(inventoryId);
+      } else {
+        regularServiceIds.push(serviceId);
+      }
     }
+
+    const [regularServices, inventoryServices] = await Promise.all([
+      regularServiceIds.length > 0
+        ? prisma.service.findMany({
+            where: {
+              id_service: { in: regularServiceIds },
+              id_agency: ctx.auth.id_agency,
+            },
+            select: { sale_price: true, currency: true },
+          })
+        : Promise.resolve([]),
+      inventoryServiceIds.length > 0
+        ? prisma.travelGroupInventory.findMany({
+            where: {
+              id_agency: ctx.auth.id_agency,
+              travel_group_id: ctx.group.id_travel_group,
+              id_travel_group_inventory: {
+                in: Array.from(new Set(inventoryServiceIds)),
+              },
+              ...(passenger.travel_group_departure_id == null
+                ? { travel_group_departure_id: null }
+                : {
+                    OR: [
+                      { travel_group_departure_id: null },
+                      {
+                        travel_group_departure_id:
+                          passenger.travel_group_departure_id,
+                      },
+                    ],
+                  }),
+            },
+            select: {
+              unit_cost: true,
+              currency: true,
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const firstCurrency =
+      regularServices[0]?.currency ??
+      inventoryServices[0]?.currency ??
+      null;
+    if (firstCurrency) {
+      currency = normalizeCurrencyCode(firstCurrency);
+    }
+
+    const regularTotal = regularServices.reduce(
+      (acc, item) => acc.plus(toDecimal(item.sale_price ?? 0)),
+      new Prisma.Decimal(0),
+    );
+    const inventoryTotal = inventoryServices.reduce(
+      (acc, item) => acc.plus(toDecimal(toAmountNumber(item.unit_cost))),
+      new Prisma.Decimal(0),
+    );
+    servicesTotal = regularTotal.plus(inventoryTotal);
   }
 
   let total = servicesTotal;

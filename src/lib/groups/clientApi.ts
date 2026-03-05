@@ -6,7 +6,7 @@ export type GroupApiError = {
   code?: string;
 };
 
-const GROUP_API_TIMEOUT_MS = 15000;
+const GROUP_API_TIMEOUT_MS = 30000;
 
 function trimOrEmpty(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -45,6 +45,12 @@ export async function requestGroupApi<T>(
   init: RequestInit,
   fallbackError: string,
 ): Promise<T> {
+  const requestLabel =
+    typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : "endpoint";
   const timeoutController = new AbortController();
   let timedOut = false;
   const timeoutId = setTimeout(
@@ -82,7 +88,9 @@ export async function requestGroupApi<T>(
   } catch (error) {
     if ((error as DOMException)?.name === "AbortError") {
       throw new Error(
-        timedOut ? `${fallbackError} Tiempo de espera agotado.` : fallbackError,
+        timedOut
+          ? `${fallbackError} Tiempo de espera agotado en ${requestLabel}.`
+          : fallbackError,
       );
     }
     throw error;

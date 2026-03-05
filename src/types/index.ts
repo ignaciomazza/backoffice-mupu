@@ -315,6 +315,7 @@ export interface Invoice {
   issue_date: string;
   total_amount: number;
   status: string;
+  context_id?: number;
   bookingId_booking: number;
   booking: Booking;
   currency: Currency;
@@ -358,6 +359,11 @@ export interface Receipt {
   verified_at?: string | null;
   verified_by?: number | null;
   verifiedBy?: { id_user: number; first_name: string; last_name: string } | null;
+  context_id?: number;
+  context?: {
+    id_context: number;
+    agency_context_id?: number | null;
+  };
   bookingId_booking: number;
   booking?: Booking;
   serviceIds?: number[];
@@ -408,6 +414,7 @@ export interface OperatorDue {
   id_due: number;
   agency_operator_due_id?: number | null;
   created_at: string;
+  context_id?: number;
   booking_id: number;
   booking?: Booking;
   service_id: number;
@@ -444,6 +451,7 @@ export interface ClientPayment {
   id_payment: number;
   agency_client_payment_id?: number | null;
   created_at: string;
+  context_id?: number;
   booking_id: number;
   booking?: Booking;
   client_id: number;

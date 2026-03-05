@@ -166,17 +166,8 @@ export default async function handler(
       },
       public_id: getDeparturePublicId(departure),
     } as Record<string, unknown>;
-    if (!bookingLinkPartial) {
-      return res.status(200).json(payload);
-    }
-    return res.status(200).json({
-      ...payload,
-      code: "GROUP_BOOKING_LINK_PARTIAL",
-      warning:
-        "La salida está disponible, pero la vinculación con reservas todavía no está habilitada.",
-      solution:
-        "Aplicá la migración pendiente de reservas para habilitar esa vinculación.",
-    });
+    void bookingLinkPartial;
+    return res.status(200).json(payload);
   }
 
   if (req.method === "PATCH") {
@@ -322,18 +313,15 @@ export default async function handler(
           solution: "Ingresá un número válido o dejá el campo vacío.",
         });
       }
-      const occupied = Math.max(
-        departure._count.passengers ?? 0,
-        departure._count.bookings ?? 0,
-      );
+      const occupied = departure._count.passengers ?? 0;
       if (value !== null && value < occupied) {
         return groupApiError(
           res,
           400,
-          "El cupo total no puede ser menor a pasajeros o reservas ya asociadas.",
+          "El cupo total no puede ser menor a pasajeros ya asociados.",
           {
             code: "GROUP_DEPARTURE_CAPACITY_TOTAL_TOO_LOW",
-            solution: "Aumentá el cupo o reducí asociaciones antes de guardar.",
+            solution: "Aumentá el cupo o reducí pasajeros antes de guardar.",
           },
         );
       }
@@ -453,17 +441,8 @@ export default async function handler(
         },
         public_id: getDeparturePublicId(updated),
       } as Record<string, unknown>;
-      if (!updateBookingLinkPartial) {
-        return res.status(200).json(payload);
-      }
-      return res.status(200).json({
-        ...payload,
-        code: "GROUP_BOOKING_LINK_PARTIAL",
-        warning:
-          "La salida se actualizó, pero el vínculo con reservas todavía no está habilitado.",
-        solution:
-          "Aplicá la migración pendiente de reservas para habilitar ese vínculo.",
-      });
+      void updateBookingLinkPartial;
+      return res.status(200).json(payload);
     } catch (error) {
       console.error("[groups][departures][PATCH]", error);
       if (
@@ -510,7 +489,6 @@ export default async function handler(
     }
 
     if (
-      (departure._count.bookings ?? 0) > 0 ||
       departure._count.passengers > 0 ||
       departure._count.inventories > 0
     ) {
@@ -520,7 +498,7 @@ export default async function handler(
         "No se puede eliminar la salida porque tiene datos asociados.",
         {
           code: "GROUP_DEPARTURE_DELETE_HAS_ASSOCIATIONS",
-          solution: "Quitá reservas, pasajeros e inventarios asociados antes de eliminar.",
+          solution: "Quitá pasajeros e inventarios asociados antes de eliminar.",
         },
       );
     }

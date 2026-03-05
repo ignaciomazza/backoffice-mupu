@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { Booking, ClientPayment } from "@/types";
+import { ClientPayment } from "@/types";
+import type { GroupFinanceContext } from "@/components/groups/finance/contextTypes";
 import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
 import { useAuth } from "@/context/AuthContext";
@@ -13,7 +14,7 @@ import {
 
 interface Props {
   payment: ClientPayment;
-  booking: Booking;
+  context: GroupFinanceContext;
   groupId?: string;
   role: string;
   onPaymentDeleted?: (id: number) => void;
@@ -68,7 +69,7 @@ const normalizeStatus = (status?: string) => {
 
 export default function GroupClientPaymentCard({
   payment,
-  booking,
+  context,
   groupId,
   role,
   onPaymentDeleted,
@@ -126,12 +127,12 @@ export default function GroupClientPaymentCard({
       if (full) return `${full} · Nº ${num}`;
     }
     if (!payment?.client_id) return "—";
-    const tid = booking.titular?.id_client;
-    const tnum = formatAgencyNumber(booking.titular?.agency_client_id);
+    const tid = context.titular?.id_client;
+    const tnum = formatAgencyNumber(context.titular?.agency_client_id);
     if (payment.client_id === tid) {
-      return `${booking.titular.first_name} ${booking.titular.last_name} · Nº ${tnum}`;
+      return `${context.titular?.first_name || ""} ${context.titular?.last_name || ""} · Nº ${tnum}`;
     }
-    const found = booking.clients?.find(
+    const found = context.clients?.find(
       (c) => c.id_client === payment.client_id,
     );
     return found
@@ -139,7 +140,7 @@ export default function GroupClientPaymentCard({
           found.agency_client_id,
         )}`
       : "Sin Nº";
-  }, [payment?.client, payment?.client_id, booking.titular, booking.clients]);
+  }, [payment?.client, payment?.client_id, context.titular, context.clients]);
 
   const persistedStatus = useMemo(
     () => normalizeStatus(payment?.status),

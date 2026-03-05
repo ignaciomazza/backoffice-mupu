@@ -1,13 +1,14 @@
 // src/components/groups/collections/GroupReceiptList.tsx
 
-import { Receipt, Booking, Service } from "@/types";
+import { Receipt, Service } from "@/types";
+import type { GroupFinanceContext } from "@/components/groups/finance/contextTypes";
 import GroupReceiptCard from "@/components/groups/collections/GroupReceiptCard";
 import "react-toastify/dist/ReactToastify.css";
 
 interface ReceiptListProps {
   token: string | null;
   receipts: Receipt[];
-  booking: Booking;
+  context: GroupFinanceContext;
   groupId?: string;
   services: Service[];
   role: string;
@@ -18,7 +19,7 @@ interface ReceiptListProps {
 export default function GroupReceiptList({
   token,
   receipts,
-  booking,
+  context,
   groupId,
   services,
   role,
@@ -42,7 +43,7 @@ export default function GroupReceiptList({
             key={receipt.id_receipt}
             token={token}
             receipt={receipt}
-            booking={booking}
+            context={context}
             groupId={groupId}
             services={services}
             role={role}

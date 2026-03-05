@@ -2,13 +2,14 @@
 "use client";
 
 import { useMemo } from "react";
-import { Booking, ClientPayment } from "@/types";
+import { ClientPayment } from "@/types";
+import type { GroupFinanceContext } from "@/components/groups/finance/contextTypes";
 import Spinner from "@/components/Spinner";
 import GroupClientPaymentCard from "@/components/groups/collections/GroupClientPaymentCard";
 
 interface Props {
   payments: ClientPayment[] | undefined;
-  booking: Booking;
+  context: GroupFinanceContext;
   groupId?: string;
   role: string;
   onPaymentDeleted?: (id: number) => void;
@@ -17,7 +18,7 @@ interface Props {
 
 export default function GroupClientPaymentList({
   payments,
-  booking,
+  context,
   groupId,
   role,
   onPaymentDeleted,
@@ -53,7 +54,7 @@ export default function GroupClientPaymentList({
         <GroupClientPaymentCard
           key={payment.id_payment}
           payment={payment}
-          booking={booking}
+          context={context}
           groupId={groupId}
           role={role}
           onPaymentDeleted={onPaymentDeleted}
