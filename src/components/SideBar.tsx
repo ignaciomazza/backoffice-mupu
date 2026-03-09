@@ -301,6 +301,9 @@ export default function SideBar({
         title: "Pasajeros",
         items: [
           { href: "/clients", label: "Pasajeros" },
+          hasAccess("/clients/panel")
+            ? { href: "/clients/panel", label: "Panel" }
+            : null,
           hasAccess("/client-stats")
             ? { href: "/client-stats", label: "Estadísticas" }
             : null,

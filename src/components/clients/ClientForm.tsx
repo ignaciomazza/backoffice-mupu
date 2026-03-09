@@ -26,7 +26,6 @@ export interface ClientFormData {
   birth_date?: string | null;
   nationality?: string;
   gender?: string;
-  category_id?: number | null;
   email?: string;
   custom_fields?: Record<string, string>;
 }
@@ -45,7 +44,6 @@ interface ClientFormProps {
   customFields?: ClientCustomField[];
   hiddenFields?: string[];
   profileOptions?: Array<{ key: string; label: string }>;
-  passengerCategories?: Array<{ id_category: number; name: string; enabled?: boolean }>;
 }
 
 /* ========== UI primitives (mismo lenguaje visual que ServiceForm) ========== */
@@ -119,7 +117,6 @@ export default function ClientForm({
   customFields = [],
   hiddenFields = [],
   profileOptions = [],
-  passengerCategories = [],
 }: ClientFormProps) {
   /* ---------- formateo de fecha (idéntico al tuyo) ---------- */
   const formatIsoToDisplay = (iso: string): string => {
@@ -598,27 +595,6 @@ export default function ClientForm({
                       required={isRequired("birth_date")}
                       className={inputClass("birth_date")}
                     />
-                  </Field>
-                )}
-
-                {passengerCategories.length > 0 && (
-                  <Field id="category_id" label="Categoría">
-                    <select
-                      id="category_id"
-                      name="category_id"
-                      value={formData.category_id ?? ""}
-                      onChange={handleChange}
-                      className={`${inputClass("category_id")} cursor-pointer appearance-none`}
-                    >
-                      <option value="">Sin categoría</option>
-                      {passengerCategories
-                        .filter((c) => c.enabled !== false)
-                        .map((cat) => (
-                          <option key={cat.id_category} value={cat.id_category}>
-                            {cat.name}
-                          </option>
-                        ))}
-                    </select>
                   </Field>
                 )}
 

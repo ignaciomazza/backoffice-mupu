@@ -64,7 +64,6 @@ type NewClientDraft = {
   birth_date: string;
   nationality: string;
   gender: string;
-  category_id: number | null;
   dni_number: string;
   passport_number: string;
   email: string;
@@ -85,7 +84,6 @@ type ExistingClientDraft = {
     first_name: string;
     last_name: string;
     birth_date?: string | null;
-    category_id?: number | null;
     dni_number?: string;
     passport_number?: string;
     email?: string;
@@ -575,7 +573,6 @@ const emptyClient = (): NewClientDraft => ({
   birth_date: "",
   nationality: "",
   gender: "",
-  category_id: null,
   dni_number: "",
   passport_number: "",
   email: "",
@@ -1494,7 +1491,6 @@ export default function QuickLoadPage() {
         first_name: client.first_name,
         last_name: client.last_name,
         birth_date: client.birth_date,
-        category_id: client.category_id ?? null,
         dni_number: client.dni_number,
         passport_number: client.passport_number,
         email: client.email,
@@ -1651,72 +1647,8 @@ export default function QuickLoadPage() {
   }, [booking.simple_companions]);
 
   const passengerCategoryCounts = useMemo(() => {
-    const counts: Record<number, number> = { ...simpleCompanionCounts };
-
-    const explicitCategory = (c: ClientDraft) =>
-      c.kind === "existing" ? c.snapshot.category_id : c.category_id;
-
-    clients.forEach((c) => {
-      const cat = explicitCategory(c);
-      if (typeof cat === "number" && Number.isFinite(cat) && cat > 0) {
-        counts[cat] = (counts[cat] || 0) + 1;
-      }
-    });
-
-    if (!passengerCategories.length) return counts;
-    const eligible = [...passengerCategories]
-      .filter((c) => c.enabled !== false && !c.ignore_age)
-      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-
-    const ageFromBirthDate = (value?: string | null) => {
-      if (!value) return null;
-      const d = new Date(value);
-      if (Number.isNaN(d.getTime())) return null;
-      const now = new Date();
-      let age = now.getUTCFullYear() - d.getUTCFullYear();
-      const m = now.getUTCMonth() - d.getUTCMonth();
-      if (m < 0 || (m === 0 && now.getUTCDate() < d.getUTCDate())) {
-        age -= 1;
-      }
-      return age >= 0 ? age : null;
-    };
-
-    const matchCategoryId = (age: number | null) => {
-      if (age == null) return null;
-      for (const cat of eligible) {
-        const min = typeof cat.min_age === "number" ? cat.min_age : null;
-        const max = typeof cat.max_age === "number" ? cat.max_age : null;
-        const okMin = min == null || age >= min;
-        const okMax = max == null || age <= max;
-        if (okMin && okMax) return cat.id_category;
-      }
-      return null;
-    };
-
-    clients.forEach((c) => {
-      const cat = explicitCategory(c);
-      if (typeof cat === "number" && Number.isFinite(cat) && cat > 0) {
-        return;
-      }
-      const birth =
-        c.kind === "existing" ? c.snapshot.birth_date : c.birth_date;
-      const age = ageFromBirthDate(birth);
-      const catId = matchCategoryId(age);
-      if (!catId) return;
-      counts[catId] = (counts[catId] || 0) + 1;
-    });
-
-    return counts;
-  }, [clients, passengerCategories, simpleCompanionCounts]);
-
-  const categoryLabelById = useCallback(
-    (id?: number | null) => {
-      if (!id || !Number.isFinite(id)) return null;
-      const found = passengerCategories.find((p) => p.id_category === id);
-      return found?.name || `Cat ${id}`;
-    },
-    [passengerCategories],
-  );
+    return { ...simpleCompanionCounts };
+  }, [simpleCompanionCounts]);
 
   const addService = () => {
     setServices((prev) => [
@@ -2227,7 +2159,6 @@ export default function QuickLoadPage() {
             birth_date: client.birth_date,
             nationality: client.nationality,
             gender: client.gender,
-            category_id: client.category_id ?? null,
             dni_number: client.dni_number,
             passport_number: client.passport_number,
             email: client.email,
@@ -2831,12 +2762,6 @@ export default function QuickLoadPage() {
                               {client.snapshot.passport_number || "-"}
                             </p>
                             <p>Email: {client.snapshot.email || "-"}</p>
-                            {categoryLabelById(client.snapshot.category_id) && (
-                              <p>
-                                Categoría:{" "}
-                                {categoryLabelById(client.snapshot.category_id)}
-                              </p>
-                            )}
                           </div>
                         ) : (
                           <div className="mt-6 grid gap-6">
@@ -2996,41 +2921,6 @@ export default function QuickLoadPage() {
                                     <option value="Otro">Otro</option>
                                   </select>
                                 </div>
-                                {passengerCategories.length > 0 && (
-                                  <div>
-                                    <FieldLabel
-                                      htmlFor={`category-${client.id}`}
-                                    >
-                                      Categoría
-                                    </FieldLabel>
-                                    <select
-                                      id={`category-${client.id}`}
-                                      value={client.category_id ?? ""}
-                                      onChange={(e) =>
-                                        updateClientField(
-                                          client.id,
-                                          "category_id",
-                                          e.target.value
-                                            ? Number(e.target.value)
-                                            : null,
-                                        )
-                                      }
-                                      className={`${INPUT} cursor-pointer`}
-                                    >
-                                      <option value="">Sin categoría</option>
-                                      {passengerCategories
-                                        .filter((p) => p.enabled !== false)
-                                        .map((p) => (
-                                          <option
-                                            key={p.id_category}
-                                            value={p.id_category}
-                                          >
-                                            {p.name}
-                                          </option>
-                                        ))}
-                                    </select>
-                                  </div>
-                                )}
                               </div>
                             </div>
 

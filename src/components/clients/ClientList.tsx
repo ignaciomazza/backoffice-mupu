@@ -15,7 +15,6 @@ interface ClientListProps {
   startEditingClient: (client: Client) => void;
   deleteClient: (id: number) => void;
   onOpenRelations?: (client: Client) => void;
-  passengerCategories?: Array<{ id_category: number; name: string }>;
   hasMore?: boolean;
   onLoadMore?: () => void;
   loadingMore?: boolean;
@@ -31,7 +30,6 @@ export default function ClientList({
   startEditingClient,
   deleteClient,
   onOpenRelations,
-  passengerCategories = [],
   hasMore = false,
   onLoadMore,
   loadingMore = false,
@@ -47,14 +45,13 @@ export default function ClientList({
             client={client}
             expandedClientId={expandedClientId}
             setExpandedClientId={setExpandedClientId}
-            formatDate={formatDate}
-            startEditingClient={startEditingClient}
-            deleteClient={deleteClient}
-            onOpenRelations={onOpenRelations}
-            passengerCategories={passengerCategories}
-            profileLabels={profileLabels}
-          />
-        ))}
+              formatDate={formatDate}
+              startEditingClient={startEditingClient}
+              deleteClient={deleteClient}
+              onOpenRelations={onOpenRelations}
+              profileLabels={profileLabels}
+            />
+          ))}
       </div>
     ) : (
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -101,7 +98,6 @@ type ClientRowProps = {
   startEditingClient: (client: Client) => void;
   deleteClient: (id: number) => void;
   onOpenRelations?: (client: Client) => void;
-  passengerCategories?: Array<{ id_category: number; name: string }>;
   profileLabels?: Record<string, string>;
 };
 
@@ -113,7 +109,6 @@ function ClientListRow({
   startEditingClient,
   deleteClient,
   onOpenRelations,
-  passengerCategories = [],
   profileLabels = {},
 }: ClientRowProps) {
   const isExpanded = expandedClientId === client.id_client;
@@ -124,13 +119,6 @@ function ClientListRow({
       ? String(Math.trunc(client.agency_client_id))
       : "Sin Nº";
   const fullName = `${client.first_name} ${client.last_name}`.trim() || "—";
-  const categoryLabel =
-    client.category_id && passengerCategories.length
-      ? passengerCategories.find((c) => c.id_category === client.category_id)
-          ?.name || `Cat ${client.category_id}`
-      : client.category_id
-        ? `Cat ${client.category_id}`
-        : null;
   const profileLabel =
     profileLabels[String(client.profile_key || "")] ||
     client.profile_key ||
@@ -241,7 +229,6 @@ function ClientListRow({
               label="Dirección Comercial"
               value={client.commercial_address || "—"}
             />
-            {categoryLabel && <Field label="Categoría" value={categoryLabel} />}
           </div>
 
           <ClientFilesPanel clientId={client.id_client} expanded={isExpanded} />

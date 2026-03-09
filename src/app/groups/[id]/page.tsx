@@ -256,7 +256,6 @@ type ClientEditableDraft = {
   postal_code: string;
   company_name: string;
   commercial_address: string;
-  category_id: string;
   custom_fields: Record<string, string>;
 } | null;
 
@@ -266,12 +265,6 @@ type ClientConfigPayload = {
   hidden_fields?: unknown;
   custom_fields?: unknown;
 } | null;
-
-type PassengerCategoryOption = {
-  id_category: number;
-  name: string;
-  enabled?: boolean;
-};
 
 type InventoryDraft = {
   departure_id: string;
@@ -752,7 +745,6 @@ function PassengerClientFields({
   requiredFields,
   hiddenFields,
   customFields,
-  passengerCategories,
   title = "Datos personales",
   description = "Completá datos de contacto, identidad y facturación del pasajero.",
 }: {
@@ -766,7 +758,6 @@ function PassengerClientFields({
   requiredFields: string[];
   hiddenFields: string[];
   customFields: ClientCustomField[];
-  passengerCategories: PassengerCategoryOption[];
   title?: string;
   description?: string;
 }) {
@@ -1046,28 +1037,6 @@ function PassengerClientFields({
           </div>
         ) : null}
 
-        {passengerCategories.length > 0 ? (
-          <div className="space-y-1 md:col-span-2">
-            <label className={FIELD_LABEL_CLASS}>Categoría de pasajero</label>
-            <select
-              value={draft.category_id}
-              onChange={(e) => onChange("category_id", e.target.value)}
-              disabled={disabled}
-              className={FIELD_INPUT_CLASS}
-            >
-              <option value="">Sin categoría</option>
-              {passengerCategories.map((item) => (
-                <option key={item.id_category} value={item.id_category}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-            <p className={FIELD_HINT_CLASS}>
-              Podés usar categorías para segmentar planes y cobros.
-            </p>
-          </div>
-        ) : null}
-
         {customFields.map((field) => {
           const value = draft.custom_fields[field.key] || "";
           const fieldRequired = Boolean(field.required);
@@ -1267,10 +1236,6 @@ function defaultClientDraft(
     postal_code: String(source?.postal_code ?? ""),
     company_name: String(source?.company_name ?? ""),
     commercial_address: String(source?.commercial_address ?? ""),
-    category_id:
-      source && Number.isFinite(Number(source.category_id))
-        ? String(source.category_id)
-        : "",
     custom_fields: customFields,
   };
 }
@@ -1316,9 +1281,6 @@ export default function GroupDetailPage() {
       custom_fields: [],
     },
   ]);
-  const [passengerCategories, setPassengerCategories] = useState<
-    PassengerCategoryOption[]
-  >([]);
 
   const [showDepartureCreate, setShowDepartureCreate] = useState(false);
   const [showDeparturePanel, setShowDeparturePanel] = useState(false);
@@ -1511,15 +1473,6 @@ export default function GroupDetailPage() {
           },
           "No pudimos cargar la configuración de pasajeros.",
         ).catch(() => null);
-        const categoriesData = await requestGroupApi<PassengerCategoryOption[]>(
-          "/api/passenger-categories?enabled=true",
-          {
-            credentials: "include",
-            cache: "no-store",
-          },
-          "No pudimos cargar las categorías de pasajeros.",
-        ).catch(() => []);
-
         setGroup(groupData);
         setPassengers(
           Array.isArray(passengersData.items) ? passengersData.items : [],
@@ -1536,14 +1489,6 @@ export default function GroupDetailPage() {
             custom_fields: clientConfigData?.custom_fields,
           },
         );
-        const normalizedCategories = Array.isArray(categoriesData)
-          ? categoriesData.filter(
-              (item) =>
-                Number.isFinite(Number(item.id_category)) &&
-                Number(item.id_category) > 0,
-            )
-          : [];
-
         setClientProfiles(normalizedProfiles);
         setNewClientDraft((prev) =>
           prev
@@ -1567,8 +1512,6 @@ export default function GroupDetailPage() {
               }
             : prev,
         );
-        setPassengerCategories(normalizedCategories);
-
         try {
           const serviceTypesData = await requestGroupApi<ServiceTypeOption[]>(
             "/api/service-types?enabled=true",
@@ -1699,7 +1642,6 @@ export default function GroupDetailPage() {
             custom_fields: [],
           },
         ]);
-        setPassengerCategories([]);
       } finally {
         setLoading(false);
       }
@@ -3170,16 +3112,6 @@ export default function GroupDetailPage() {
         return;
       }
 
-      const parsedCategoryId = parseOptionalPositiveInteger(
-        newClientDraft.category_id,
-      );
-      if (newClientDraft.category_id.trim() && parsedCategoryId == null) {
-        const msg = "La categoría del pasajero no es válida.";
-        setError(msg);
-        toast.error(msg);
-        return;
-      }
-
       const sanitizedCustomFields = sanitizeClientCustomFields(newClientDraft);
       try {
         const createdClient = await requestGroupApi<{ id_client: number }>(
@@ -3205,7 +3137,6 @@ export default function GroupDetailPage() {
               postal_code: newClientDraft.postal_code.trim(),
               company_name: newClientDraft.company_name.trim(),
               commercial_address: newClientDraft.commercial_address.trim(),
-              category_id: parsedCategoryId ?? null,
               custom_fields: sanitizedCustomFields,
             }),
           },
@@ -3318,16 +3249,6 @@ export default function GroupDetailPage() {
       return;
     }
 
-    const parsedCategoryId = parseOptionalPositiveInteger(
-      activeClientDraft.category_id,
-    );
-    if (activeClientDraft.category_id.trim() && parsedCategoryId == null) {
-      const msg = "La categoría del pasajero no es válida.";
-      setError(msg);
-      toast.error(msg);
-      return;
-    }
-
     const sanitizedCustomFields = sanitizeClientCustomFields(activeClientDraft);
     const payload: Record<string, unknown> = {
       ...activeClientRaw,
@@ -3347,7 +3268,6 @@ export default function GroupDetailPage() {
       postal_code: activeClientDraft.postal_code.trim() || null,
       company_name: activeClientDraft.company_name.trim() || null,
       commercial_address: activeClientDraft.commercial_address.trim() || null,
-      category_id: parsedCategoryId ?? null,
       custom_fields: sanitizedCustomFields,
     };
 
@@ -4526,7 +4446,6 @@ export default function GroupDetailPage() {
                                 }
                                 hiddenFields={newClientProfile.hidden_fields}
                                 customFields={newClientProfile.custom_fields}
-                                passengerCategories={passengerCategories}
                                 title="Nuevo pasajero"
                                 description="Completá los datos mínimos para crear y sumar el pasajero a esta grupal."
                               />
@@ -4592,7 +4511,6 @@ export default function GroupDetailPage() {
                                 }
                                 hiddenFields={activeClientProfile.hidden_fields}
                                 customFields={activeClientProfile.custom_fields}
-                                passengerCategories={passengerCategories}
                                 title="Datos personales del pasajero"
                                 description="Este bloque se reutiliza para editar la información del pasajero activo."
                               />

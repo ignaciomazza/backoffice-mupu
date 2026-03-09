@@ -15,6 +15,7 @@ export const STUDIO_NAV_GROUPS: StudioNavGroup[] = [
     title: "Pasajeros",
     links: [
       { href: "/clients", label: "Pasajeros" },
+      { href: "/clients/panel", label: "Panel" },
       { href: "/client-stats", label: "Estadísticas" },
       { href: "/clients/config", label: "Configuración" },
     ],

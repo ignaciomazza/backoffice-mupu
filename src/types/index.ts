@@ -84,8 +84,6 @@ export interface Client {
   birth_date: string | null;
   nationality: string;
   gender: string;
-  category_id?: number | null;
-  category?: PassengerCategory | null;
   email?: string;
   custom_fields?: Record<string, string>;
   registration_date: string;

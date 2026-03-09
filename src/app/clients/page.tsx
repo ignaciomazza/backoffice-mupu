@@ -53,9 +53,6 @@ function humanizeClientErrorMessage(
   ) {
     return "El tipo de pax seleccionado no es válido.";
   }
-  if (normalized.includes("category_id")) {
-    return "La categoría seleccionada no es válida.";
-  }
   if (
     normalized.includes("falta la migración de tipos de pax") ||
     normalized.includes("actualización pendiente del sistema")
@@ -153,7 +150,6 @@ export default function Page() {
     birth_date: "",
     nationality: "",
     gender: "",
-    category_id: null,
     email: "",
     custom_fields: {},
     id_user: 0,
@@ -527,13 +523,6 @@ export default function Page() {
       });
       return;
     }
-    if (name === "category_id") {
-      setFormData((prev) => ({
-        ...prev,
-        category_id: value ? Number(value) : null,
-      }));
-      return;
-    }
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -564,7 +553,6 @@ export default function Page() {
       birth_date: toDateKeyInBuenosAiresLegacySafe(client.birth_date) ?? "",
       nationality: client.nationality || "",
       gender: client.gender || "",
-      category_id: client.category_id ?? null,
       email: client.email || "",
       custom_fields: client.custom_fields || {},
       id_user: client.user.id_user,
@@ -742,7 +730,6 @@ export default function Page() {
         birth_date: "",
         nationality: "",
         gender: "",
-        category_id: null,
         email: "",
         custom_fields: {},
         id_user: prev.id_user,
@@ -846,7 +833,6 @@ export default function Page() {
             customFields={customFields}
             hiddenFields={hiddenFields}
             profileOptions={profileOptions}
-            passengerCategories={passengerCategories}
           />
         </motion.div>
 
@@ -1003,7 +989,6 @@ export default function Page() {
             loadingMore={loadingMore}
             viewMode={viewMode === "list" ? "list" : "grid"}
             onOpenRelations={(c) => setRelationsClient(c)}
-            passengerCategories={passengerCategories}
             profileLabels={profileLabels}
           />
         )}

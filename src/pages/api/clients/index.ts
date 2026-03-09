@@ -187,7 +187,6 @@ const clientSelectSafe = {
   birth_date: true,
   nationality: true,
   gender: true,
-  category_id: true,
   email: true,
   custom_fields: true,
   registration_date: true,
@@ -213,7 +212,6 @@ const clientLegacySelectSafe = {
   birth_date: true,
   nationality: true,
   gender: true,
-  category_id: true,
   email: true,
   custom_fields: true,
   registration_date: true,
@@ -623,27 +621,6 @@ export default async function handler(
       }
       const birthForStorage = birth ?? null;
 
-      const rawCategoryId = (c as Record<string, unknown>).category_id;
-      let categoryId: number | null = null;
-      if (rawCategoryId != null && rawCategoryId !== "") {
-        const parsed = Number(rawCategoryId);
-        if (!Number.isFinite(parsed) || parsed <= 0) {
-          return res
-            .status(400)
-            .json({ error: "La categoría seleccionada no es válida." });
-        }
-        const exists = await prisma.passengerCategory.findFirst({
-          where: { id_category: parsed, id_agency: auth.id_agency },
-          select: { id_category: true },
-        });
-        if (!exists) {
-          return res
-            .status(400)
-            .json({ error: "La categoría seleccionada no es válida." });
-        }
-        categoryId = Math.floor(parsed);
-      }
-
       const customPayload = isRecord(c.custom_fields)
         ? (c.custom_fields as Record<string, unknown>)
         : {};
@@ -729,7 +706,8 @@ export default async function handler(
           birth_date: birthForStorage,
           nationality: String(c.nationality ?? "").trim(),
           gender: String(c.gender ?? "").trim(),
-          category_id: categoryId,
+          // Las categorías quedan reservadas al flujo de pax simple.
+          category_id: null,
           email: String(c.email ?? "").trim() || null,
           id_user: usedUserId,
           id_agency: auth.id_agency, // SIEMPRE desde el token

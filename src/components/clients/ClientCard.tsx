@@ -15,7 +15,6 @@ interface ClientCardProps {
   startEditingClient: (client: Client) => void;
   deleteClient: (id: number) => void;
   onOpenRelations?: (client: Client) => void;
-  passengerCategories?: Array<{ id_category: number; name: string }>;
   profileLabels?: Record<string, string>;
 }
 
@@ -27,7 +26,6 @@ export default function ClientCard({
   startEditingClient,
   deleteClient,
   onOpenRelations,
-  passengerCategories = [],
   profileLabels = {},
 }: ClientCardProps) {
   const isExpanded = expandedClientId === client.id_client;
@@ -37,13 +35,6 @@ export default function ClientCard({
     client.agency_client_id > 0
       ? String(Math.trunc(client.agency_client_id))
       : "Sin Nº";
-  const categoryLabel =
-    client.category_id && passengerCategories.length
-      ? passengerCategories.find((c) => c.id_category === client.category_id)
-          ?.name || `Cat ${client.category_id}`
-      : client.category_id
-        ? `Cat ${client.category_id}`
-        : null;
   const profileLabel =
     profileLabels[String(client.profile_key || "")] ||
     client.profile_key ||
@@ -154,7 +145,6 @@ export default function ClientCard({
               label="Dirección Comercial"
               value={client.commercial_address || "—"}
             />
-            {categoryLabel && <Field label="Categoría" value={categoryLabel} />}
           </div>
 
           <ClientFilesPanel clientId={client.id_client} expanded={isExpanded} />

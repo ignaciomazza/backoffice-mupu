@@ -675,45 +675,13 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   const passengerCategoryCounts = useMemo(() => {
     const counts: Record<number, number> = {};
     if (!booking) return counts;
-    if (Array.isArray(booking.simple_companions)) {
-      booking.simple_companions.forEach((c) => {
-        const id = c.category_id;
-        if (typeof id !== "number" || !Number.isFinite(id)) return;
-        counts[id] = (counts[id] || 0) + 1;
-      });
-    }
-
-    const realPassengers = [
-      booking.titular,
-      ...(Array.isArray(booking.clients) ? booking.clients : []),
-    ].filter(Boolean);
-
-    realPassengers.forEach((p) => {
-      const id = p?.category_id;
-      if (typeof id !== "number" || !Number.isFinite(id) || id <= 0) return;
-      counts[id] = (counts[id] || 0) + 1;
-    });
-
-    if (!passengerCategories.length) return counts;
     const eligible = [...passengerCategories]
       .filter((c) => c.enabled !== false && !c.ignore_age)
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
-    const ageFromBirthDate = (value?: string | null) => {
-      if (!value) return null;
-      const d = new Date(value);
-      if (Number.isNaN(d.getTime())) return null;
-      const now = new Date();
-      let age = now.getUTCFullYear() - d.getUTCFullYear();
-      const m = now.getUTCMonth() - d.getUTCMonth();
-      if (m < 0 || (m === 0 && now.getUTCDate() < d.getUTCDate())) {
-        age -= 1;
-      }
-      return age >= 0 ? age : null;
-    };
-
-    const matchCategoryId = (age: number | null) => {
+    const matchCategoryId = (age: number | null | undefined) => {
       if (age == null) return null;
+      if (!Number.isFinite(age) || age < 0) return null;
       for (const cat of eligible) {
         const min = typeof cat.min_age === "number" ? cat.min_age : null;
         const max = typeof cat.max_age === "number" ? cat.max_age : null;
@@ -724,13 +692,21 @@ export default function ServicesContainer(props: ServicesContainerProps) {
       return null;
     };
 
-    realPassengers.forEach((p) => {
-      const id = p?.category_id;
-      if (typeof id === "number" && Number.isFinite(id) && id > 0) return;
-      const age = ageFromBirthDate(p?.birth_date);
-      const catId = matchCategoryId(age);
-      if (!catId) return;
-      counts[catId] = (counts[catId] || 0) + 1;
+    if (!Array.isArray(booking.simple_companions)) return counts;
+    booking.simple_companions.forEach((companion) => {
+      const explicitCategoryId =
+        typeof companion?.category_id === "number" &&
+        Number.isFinite(companion.category_id) &&
+        companion.category_id > 0
+          ? companion.category_id
+          : null;
+      if (explicitCategoryId) {
+        counts[explicitCategoryId] = (counts[explicitCategoryId] || 0) + 1;
+        return;
+      }
+      const inferredCategoryId = matchCategoryId(companion?.age);
+      if (!inferredCategoryId) return;
+      counts[inferredCategoryId] = (counts[inferredCategoryId] || 0) + 1;
     });
 
     return counts;

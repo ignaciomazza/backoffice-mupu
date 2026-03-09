@@ -182,7 +182,6 @@ const clientSelectSafe = {
   birth_date: true,
   nationality: true,
   gender: true,
-  category_id: true,
   email: true,
   custom_fields: true,
   registration_date: true,
@@ -208,7 +207,6 @@ const clientLegacySelectSafe = {
   birth_date: true,
   nationality: true,
   gender: true,
-  category_id: true,
   email: true,
   custom_fields: true,
   registration_date: true,
@@ -524,35 +522,6 @@ export default async function handler(
           .json({ error: getMissingFieldMessage("birth_date") });
       }
 
-      const hasCategory = Object.prototype.hasOwnProperty.call(
-        c as Record<string, unknown>,
-        "category_id",
-      );
-      let nextCategoryId: number | null | undefined = undefined;
-      if (hasCategory) {
-        const rawCategory = (c as Record<string, unknown>).category_id;
-        if (rawCategory == null || rawCategory === "") {
-          nextCategoryId = null;
-        } else {
-          const parsed = Number(rawCategory);
-          if (!Number.isFinite(parsed) || parsed <= 0) {
-            return res
-              .status(400)
-              .json({ error: "La categoría seleccionada no es válida." });
-          }
-          const exists = await prisma.passengerCategory.findFirst({
-            where: { id_category: parsed, id_agency: auth.id_agency },
-            select: { id_category: true },
-          });
-          if (!exists) {
-            return res
-              .status(400)
-              .json({ error: "La categoría seleccionada no es válida." });
-          }
-          nextCategoryId = Math.floor(parsed);
-        }
-      }
-
       const hasCustomPayload = isRecord(c.custom_fields);
       const customPayload = hasCustomPayload
         ? (c.custom_fields as Record<string, unknown>)
@@ -680,7 +649,8 @@ export default async function handler(
         gender: String(c.gender ?? "").trim(),
         email: (String(c.email ?? "").trim() || null) as string | null,
         id_user: newOwnerId,
-        ...(hasCategory ? { category_id: nextCategoryId ?? null } : {}),
+        // Las categorías quedan reservadas al flujo de pax simple.
+        category_id: null,
         ...(hasCustomPayload || hasProfileChange
           ? {
               custom_fields:
