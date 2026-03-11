@@ -1491,6 +1491,23 @@ export default function ServiceForm({
     } as ChangeEvent<HTMLInputElement>);
   };
 
+  // Si el servicio ya tenía destino guardado, lo mostramos como valor inicial del picker.
+  // Evita que al editar se vea vacío aunque no se haya vuelto a seleccionar.
+  const destinationPickerValue = useMemo<
+    DestinationOption | DestinationOption[] | null
+  >(() => {
+    if (destSelection) return destSelection;
+    const raw = (formData.destination || "").trim();
+    if (!raw || noDestination) return null;
+    const fallback: DestinationOption = {
+      id: -1,
+      kind: countryMode ? "country" : "destination",
+      name: raw,
+      displayLabel: raw,
+    };
+    return multiMode ? [fallback] : fallback;
+  }, [destSelection, formData.destination, noDestination, countryMode, multiMode]);
+
   /* ========== SUBMIT ========== */
   const [submitting, setSubmitting] = useState(false);
   const onLocalSubmit = async (e: FormEvent) => {
@@ -1670,7 +1687,7 @@ export default function ServiceForm({
     !transferFeeReady;
 
   const missingDestination =
-    !noDestination && !destValid && !destinationHasText;
+    !editingServiceId && !noDestination && !destValid && !destinationHasText;
   const submitDisabled = submitting || waitingConfig || missingDestination;
 
   return (
@@ -1905,7 +1922,7 @@ export default function ServiceForm({
                     <DestinationPicker
                       type={countryMode ? "country" : "destination"}
                       multiple={multiMode}
-                      value={destSelection}
+                      value={destinationPickerValue}
                       onChange={handleDestinationChange}
                       onValidChange={setDestValid}
                       placeholder={

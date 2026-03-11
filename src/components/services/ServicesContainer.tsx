@@ -2383,6 +2383,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                       setEditingServiceId(service.id_service);
                       setFormData({
                         ...service,
+                        destination: service.destination ?? "",
                         note: service.note ?? "",
                         departure_date: toDateOnly(service.departure_date),
                         return_date: toDateOnly(service.return_date),
