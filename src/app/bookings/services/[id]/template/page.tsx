@@ -1764,6 +1764,10 @@ export default function BookingVoucherPage() {
                         ) : null}
 
                         <div className={cx("mt-4", uiTokens.gapBlocks)}>
+                          <p className="text-xs opacity-70">
+                            Candado izquierdo: bloquea o desbloquea el bloque.
+                            La papelera se habilita cuando está desbloqueado.
+                          </p>
                           {editableBlocks.length === 0 ? (
                             <p className="text-sm opacity-70">
                               No hay contenido para mostrar.

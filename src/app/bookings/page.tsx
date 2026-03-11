@@ -945,7 +945,7 @@ export default function Page() {
       details: booking.details,
       invoice_type: booking.invoice_type || "",
       invoice_observation: booking.invoice_observation || "",
-      observation: "",
+      observation: booking.observation || "",
       titular_id: titularId,
       id_user: booking.user?.id_user || 0,
       id_agency: booking.agency?.id_agency || 0,
