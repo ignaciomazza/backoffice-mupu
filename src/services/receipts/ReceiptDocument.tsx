@@ -57,6 +57,7 @@ export interface ReceiptPdfData {
     salePrice: number;
     cardInterest: number;
     currency: string;
+    dateLabel?: string | null;
     departureDate?: string | Date | null;
     returnDate?: string | Date | null;
   }>;
@@ -140,9 +141,12 @@ const fmtDate = (
 };
 
 const formatServiceRange = (svc: {
+  dateLabel?: string | null;
   departureDate?: string | Date | null;
   returnDate?: string | Date | null;
 }) => {
+  const directLabel = String(svc.dateLabel || "").trim();
+  if (directLabel) return directLabel;
   const depLabel = fmtDate(svc.departureDate);
   const retLabel = fmtDate(svc.returnDate);
   const hasDep = depLabel !== "—";

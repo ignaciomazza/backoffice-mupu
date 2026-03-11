@@ -36,6 +36,11 @@ import {
 } from "@/utils/receipts/receiptForm";
 import { filterAccountsByCurrency } from "@/utils/receipts/accounts";
 import {
+  decodeReceiptPdfItemsPayload,
+  encodeReceiptPdfItemsPayload,
+  normalizeReceiptPdfManualItems,
+} from "@/utils/receipts/pdfItemsPayload";
+import {
   type ReceiptServiceSelectionMode,
   normalizeReceiptServiceSelectionMode,
 } from "@/utils/receiptServiceSelection";
@@ -142,6 +147,11 @@ type InitialReceiptServiceAllocation = {
 };
 
 type ServiceAllocationPresetMode = "manual" | "split_payment" | "use_costs";
+type ManualPdfItemDraft = {
+  key: string;
+  description: string;
+  date_label: string;
+};
 
 const uid = () => `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 const pad2 = (n: number) => String(n).padStart(2, "0");
@@ -816,14 +826,24 @@ export default function ReceiptForm({
     );
     if (currenciesInSelection.size > 1) return null;
 
-    const base = selectedServices.reduce(
-      (acc, s) => acc + (s.sale_price ?? 0),
-      0,
-    );
-    const fee = selectedServices.reduce(
-      (acc, s) => acc + (s.card_interest ?? 0),
-      0,
-    );
+    const base = selectedServices.reduce((acc, service) => {
+      if (
+        typeof service.pending_amount === "number" &&
+        Number.isFinite(service.pending_amount)
+      ) {
+        return acc + Math.max(0, service.pending_amount);
+      }
+      return acc + (service.sale_price ?? 0);
+    }, 0);
+    const fee = selectedServices.reduce((acc, service) => {
+      if (
+        typeof service.pending_amount === "number" &&
+        Number.isFinite(service.pending_amount)
+      ) {
+        return acc;
+      }
+      return acc + (service.card_interest ?? 0);
+    }, 0);
     const total = base + fee;
     if (base <= 0 && fee <= 0) return null;
     return {
@@ -1442,17 +1462,62 @@ export default function ReceiptForm({
   ]);
 
   /* ===== Detalle de pago para PDF ===== */
-  const [paymentDescription, setPaymentDescriptionState] = useState(
+  const initialPdfItemsPayload = decodeReceiptPdfItemsPayload(
     initialPaymentDescription,
   );
+  const [paymentDescription, setPaymentDescriptionState] = useState(
+    initialPdfItemsPayload.paymentDetail,
+  );
   const [paymentDescriptionDirty, setPaymentDescriptionDirty] = useState(
-    Boolean(initialPaymentDescription),
+    Boolean(
+      initialPdfItemsPayload.paymentDetail || initialPdfItemsPayload.encoded,
+    ),
+  );
+  const [manualPdfItemsEnabled, setManualPdfItemsEnabled] = useState(
+    initialPdfItemsPayload.items.length > 0,
+  );
+  const [manualPdfItems, setManualPdfItems] = useState<ManualPdfItemDraft[]>(
+    () =>
+      initialPdfItemsPayload.items.map((item) => ({
+        key: uid(),
+        description: item.description,
+        date_label: item.date_label || "",
+      })),
   );
 
   const handlePaymentDescriptionChange = useCallback((v: string) => {
     setPaymentDescriptionState(v);
     setPaymentDescriptionDirty(true);
   }, []);
+  const addManualPdfItem = useCallback(() => {
+    setManualPdfItems((prev) => [
+      ...prev,
+      { key: uid(), description: "", date_label: "" },
+    ]);
+  }, []);
+  const removeManualPdfItem = useCallback((key: string) => {
+    setManualPdfItems((prev) => prev.filter((item) => item.key !== key));
+  }, []);
+  const setManualPdfItemDescription = useCallback((key: string, value: string) => {
+    setManualPdfItems((prev) =>
+      prev.map((item) => (item.key === key ? { ...item, description: value } : item)),
+    );
+  }, []);
+  const setManualPdfItemDateLabel = useCallback((key: string, value: string) => {
+    setManualPdfItems((prev) =>
+      prev.map((item) => (item.key === key ? { ...item, date_label: value } : item)),
+    );
+  }, []);
+  const normalizedManualPdfItems = useMemo(
+    () =>
+      normalizeReceiptPdfManualItems(
+        manualPdfItems.map((item) => ({
+          description: item.description,
+          date_label: item.date_label,
+        })),
+      ),
+    [manualPdfItems],
+  );
 
   const getFilteredAccountsByCurrency = useCallback(
     (currencyCode: string) =>
@@ -2105,6 +2170,8 @@ export default function ReceiptForm({
     if (editingReceiptId) return;
     setPaymentDescriptionState("");
     setPaymentDescriptionDirty(false);
+    setManualPdfItemsEnabled(false);
+    setManualPdfItems([]);
   }, [selectedBookingId, mode, editingReceiptId]);
 
   useEffect(() => {
@@ -2375,6 +2442,10 @@ export default function ReceiptForm({
     if (!paymentDescription.trim())
       e.paymentDescription =
         "Agregá el detalle del método de pago (para el PDF).";
+    if (manualPdfItemsEnabled && normalizedManualPdfItems.length === 0) {
+      e.pdf_items =
+        "Cargá al menos un ítem manual o desactivá la carga manual del PDF.";
+    }
 
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -2620,7 +2691,12 @@ export default function ReceiptForm({
 
       payments: normalizedPayments,
 
-      currency: paymentDescription?.trim() || undefined,
+      currency:
+        encodeReceiptPdfItemsPayload({
+          paymentDetail: paymentDescription?.trim() || "",
+          items: normalizedManualPdfItems,
+          enabled: manualPdfItemsEnabled,
+        }) || undefined,
 
       base_amount: payloadBaseAmount,
       base_currency: payloadBaseCurrency,
@@ -2850,6 +2926,7 @@ export default function ReceiptForm({
                 toggleService={toggleService}
                 lockedCurrency={lockedCurrency}
                 effectiveCurrency={effectiveCurrency}
+                preferPendingAmount={mode === "booking" && !bookingSaleMode}
                 errors={errors}
                 formatNum={formatNum}
               />
@@ -2916,6 +2993,13 @@ export default function ReceiptForm({
                   }
                   paymentDescription={paymentDescription}
                   setPaymentDescription={handlePaymentDescriptionChange}
+                  manualPdfItemsEnabled={manualPdfItemsEnabled}
+                  setManualPdfItemsEnabled={setManualPdfItemsEnabled}
+                  manualPdfItems={manualPdfItems}
+                  addManualPdfItem={addManualPdfItem}
+                  removeManualPdfItem={removeManualPdfItem}
+                  setManualPdfItemDescription={setManualPdfItemDescription}
+                  setManualPdfItemDateLabel={setManualPdfItemDateLabel}
                   concept={concept}
                   setConcept={setConcept}
                   baseAmount={baseAmount}

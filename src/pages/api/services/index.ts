@@ -421,7 +421,173 @@ export default async function handler(
         include: { booking: true, operator: true },
       });
 
-      return res.status(200).json({ services, total: services.length });
+      const serviceById = new Map(services.map((svc) => [svc.id_service, svc]));
+      const serviceIds = services.map((svc) => svc.id_service);
+      const paidByService = new Map<number, number>();
+
+      const addPaid = (serviceId: number, amount: number) => {
+        if (!Number.isFinite(serviceId) || serviceId <= 0) return;
+        if (!Number.isFinite(amount) || amount <= 0) return;
+        paidByService.set(
+          serviceId,
+          round2((paidByService.get(serviceId) || 0) + amount),
+        );
+      };
+
+      const distributeByWeight = (targetServiceIds: number[], total: number) => {
+        if (!targetServiceIds.length) return;
+        if (!Number.isFinite(total) || total <= 0) return;
+
+        const weights = targetServiceIds.map((sid) => {
+          const service = serviceById.get(sid);
+          if (!service) return 0;
+          const sale = Math.max(toNullableNumber(service.sale_price) || 0, 0);
+          const splitInterest = Math.max(
+            (toNullableNumber(service.taxableCardInterest) || 0) +
+              (toNullableNumber(service.vatOnCardInterest) || 0),
+            0,
+          );
+          const fallbackInterest = Math.max(
+            toNullableNumber(service.card_interest) || 0,
+            0,
+          );
+          const interest = splitInterest > 0 ? splitInterest : fallbackInterest;
+          return Math.max(sale + interest, 0);
+        });
+        const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+        let remaining = round2(total);
+
+        targetServiceIds.forEach((sid, idx) => {
+          const isLast = idx === targetServiceIds.length - 1;
+          const ratio =
+            totalWeight > 0 ? weights[idx] / totalWeight : 1 / targetServiceIds.length;
+          const amount = isLast ? remaining : round2(total * ratio);
+          if (!isLast) remaining = round2(remaining - amount);
+          addPaid(sid, Math.max(0, amount));
+        });
+      };
+
+      if (serviceIds.length > 0) {
+        const receipts = await prisma.receipt.findMany({
+          where: {
+            bookingId_booking: Number(bookingId),
+            OR: [{ id_agency: auth.id_agency }, { booking: { id_agency: auth.id_agency } }],
+          },
+          select: {
+            amount: true,
+            amount_currency: true,
+            payment_fee_amount: true,
+            base_amount: true,
+            base_currency: true,
+            serviceIds: true,
+            service_allocations: {
+              select: {
+                service_id: true,
+                amount_service: true,
+              },
+            },
+          },
+        });
+
+        for (const receipt of receipts) {
+          const allocations = Array.isArray(receipt.service_allocations)
+            ? receipt.service_allocations
+            : [];
+
+          if (allocations.length > 0) {
+            for (const alloc of allocations) {
+              const serviceId = Number(alloc.service_id);
+              if (!serviceById.has(serviceId)) continue;
+              const amount = toNullableNumber(alloc.amount_service) || 0;
+              addPaid(serviceId, amount);
+            }
+            continue;
+          }
+
+          const scopedServiceIds = Array.from(
+            new Set(
+              (Array.isArray(receipt.serviceIds) ? receipt.serviceIds : [])
+                .map((id) => Number(id))
+                .filter((id) => Number.isFinite(id) && serviceById.has(id)),
+            ),
+          );
+          if (!scopedServiceIds.length) continue;
+
+          const amountCurrency = String(receipt.amount_currency || "")
+            .trim()
+            .toUpperCase();
+          const baseCurrency = String(receipt.base_currency || "")
+            .trim()
+            .toUpperCase();
+          const amountValue = Math.max(toNullableNumber(receipt.amount) || 0, 0);
+          const feeValue = Math.max(
+            toNullableNumber(receipt.payment_fee_amount) || 0,
+            0,
+          );
+          const baseValue = Math.max(
+            toNullableNumber(receipt.base_amount) || 0,
+            0,
+          );
+
+          let distributed = false;
+          if (baseCurrency && baseValue > 0) {
+            const baseServiceIds = scopedServiceIds.filter((serviceId) => {
+              const serviceCurrency = String(
+                serviceById.get(serviceId)?.currency || "",
+              )
+                .trim()
+                .toUpperCase();
+              return serviceCurrency === baseCurrency;
+            });
+            if (baseServiceIds.length > 0) {
+              distributeByWeight(baseServiceIds, baseValue);
+              distributed = true;
+            }
+          }
+
+          if (!distributed && amountCurrency) {
+            const amountServiceIds = scopedServiceIds.filter((serviceId) => {
+              const serviceCurrency = String(
+                serviceById.get(serviceId)?.currency || "",
+              )
+                .trim()
+                .toUpperCase();
+              return serviceCurrency === amountCurrency;
+            });
+            if (amountServiceIds.length > 0) {
+              distributeByWeight(amountServiceIds, amountValue + feeValue);
+            }
+          }
+        }
+      }
+
+      const servicesWithPending = services.map((service) => {
+        const sale = Math.max(toNullableNumber(service.sale_price) || 0, 0);
+        const splitInterest = Math.max(
+          (toNullableNumber(service.taxableCardInterest) || 0) +
+            (toNullableNumber(service.vatOnCardInterest) || 0),
+          0,
+        );
+        const fallbackInterest = Math.max(
+          toNullableNumber(service.card_interest) || 0,
+          0,
+        );
+        const interest = splitInterest > 0 ? splitInterest : fallbackInterest;
+        const due = round2(Math.max(sale + interest, 0));
+        const paid = round2(Math.max(paidByService.get(service.id_service) || 0, 0));
+        const pending = round2(Math.max(due - paid, 0));
+
+        return {
+          ...service,
+          paid_amount: paid,
+          pending_amount: pending,
+          overpaid_amount: round2(Math.max(paid - due, 0)),
+        };
+      });
+
+      return res
+        .status(200)
+        .json({ services: servicesWithPending, total: servicesWithPending.length });
     } catch (error) {
       console.error("Error al obtener servicios:", error);
       return res.status(500).json({ error: "Error al obtener servicios." });

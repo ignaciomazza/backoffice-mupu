@@ -43,6 +43,7 @@ export default function ContextSection(props: {
 
   errors: Record<string, string>;
   formatNum: (n: number, cur?: string) => string;
+  preferPendingAmount?: boolean;
 }) {
   const {
     attachEnabled,
@@ -78,6 +79,7 @@ export default function ContextSection(props: {
 
     errors,
     formatNum,
+    preferPendingAmount = false,
   } = props;
 
   return (
@@ -257,12 +259,21 @@ export default function ContextSection(props: {
                               </div>
                               <div className="text-xs text-sky-950/70 dark:text-white/70">
                                 Moneda: <b>{svc.currency}</b>
-                                {typeof svc.sale_price === "number" && (
+                                {((preferPendingAmount &&
+                                  typeof svc.pending_amount === "number") ||
+                                  typeof svc.sale_price === "number") && (
                                   <>
-                                    {" "}
-                                    • Venta:{" "}
+                                    {" "}•{" "}
+                                    {preferPendingAmount &&
+                                    typeof svc.pending_amount === "number"
+                                      ? "Pendiente: "
+                                      : "Venta: "}
                                     {formatNum(
-                                      (svc.sale_price ?? 0) + (svc.card_interest ?? 0),
+                                      preferPendingAmount &&
+                                        typeof svc.pending_amount === "number"
+                                        ? (svc.pending_amount ?? 0)
+                                        : (svc.sale_price ?? 0) +
+                                            (svc.card_interest ?? 0),
                                       (svc.currency || "ARS").toUpperCase(),
                                     )}
                                   </>

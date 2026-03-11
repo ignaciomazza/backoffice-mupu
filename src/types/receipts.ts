@@ -17,6 +17,7 @@ export type ServiceLite = {
   description?: string;
   currency: string; // "ARS" | "USD" | ...
   sale_price?: number; // sugerencia importe base
+  pending_amount?: number; // sugerencia saldo pendiente por servicio
   cost_price?: number;
   card_interest?: number; // sugerencia costo financiero
   taxableCardInterest?: number;

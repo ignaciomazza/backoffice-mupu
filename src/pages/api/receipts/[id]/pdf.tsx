@@ -14,6 +14,7 @@ import ReceiptStandaloneDocument, {
 import { decodePublicId } from "@/lib/publicIds";
 import { jwtVerify, type JWTPayload } from "jose";
 import { hasSchemaColumn } from "@/lib/schemaColumns";
+import { decodeReceiptPdfItemsPayload } from "@/utils/receipts/pdfItemsPayload";
 
 type PdfPaymentRaw = {
   amount: number;
@@ -441,6 +442,33 @@ export default async function handler(
   const selectedServices = bookingServices.filter((s) =>
     (receipt.serviceIds ?? []).includes(s.id_service),
   );
+  const pdfItemsPayload = decodeReceiptPdfItemsPayload(
+    receipt.currency || receipt.amount_currency,
+  );
+  const paymentDetailForPdf =
+    pdfItemsPayload.paymentDetail || receipt.amount_currency;
+  const manualPdfItems = pdfItemsPayload.items;
+  const servicesForPdf =
+    manualPdfItems.length > 0
+      ? manualPdfItems.map((item, idx) => ({
+          id: -(idx + 1),
+          description: item.description,
+          salePrice: 0,
+          cardInterest: 0,
+          currency: receipt.amount_currency,
+          dateLabel: item.date_label || null,
+          departureDate: null,
+          returnDate: null,
+        }))
+      : selectedServices.map((s) => ({
+          id: s.id_service,
+          description: s.description ?? `Servicio ${s.id_service}`,
+          salePrice: s.sale_price,
+          cardInterest: s.card_interest ?? 0,
+          currency: s.currency,
+          departureDate: s.departure_date ?? null,
+          returnDate: s.return_date ?? null,
+        }));
 
   // 4) Destinatarios
   const rawClients = receipt.clientIds?.length
@@ -564,7 +592,7 @@ export default async function handler(
     concept: receipt.concept,
     amount: Number(receipt.amount),
     amountString: receipt.amount_string,
-    currency: receipt.currency || receipt.amount_currency,
+    currency: paymentDetailForPdf,
     amount_currency: receipt.amount_currency,
 
     base_amount:
@@ -582,15 +610,7 @@ export default async function handler(
 
     payments,
 
-    services: selectedServices.map((s) => ({
-      id: s.id_service,
-      description: s.description ?? `Servicio ${s.id_service}`,
-      salePrice: s.sale_price,
-      cardInterest: s.card_interest ?? 0,
-      currency: s.currency,
-      departureDate: s.departure_date ?? null,
-      returnDate: s.return_date ?? null,
-    })),
+    services: servicesForPdf,
 
     booking: {
       details: receipt.booking?.details ?? "-",
@@ -629,7 +649,7 @@ export default async function handler(
     amount: Number(receipt.amount),
     amountString: receipt.amount_string,
     amountCurrency: receipt.amount_currency,
-    paymentDescription: receipt.currency || receipt.amount_currency,
+    paymentDescription: paymentDetailForPdf,
     paymentFeeAmount: paymentFeeAmountTotal,
     payments,
     base_amount:

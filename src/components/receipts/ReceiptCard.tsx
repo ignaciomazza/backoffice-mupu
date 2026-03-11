@@ -9,6 +9,7 @@ import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
 import { responseErrorMessage } from "@/utils/httpError";
 import { formatDateOnlyInBuenosAires } from "@/lib/buenosAiresDate";
+import { decodeReceiptPdfItemsPayload } from "@/utils/receipts/pdfItemsPayload";
 
 /* ======================== Utils ======================== */
 
@@ -180,6 +181,10 @@ export default function ReceiptCard({
 }: ReceiptCardProps) {
   const [loadingPDF, setLoadingPDF] = useState(false);
   const [loadingDelete, setLoadingDelete] = useState(false);
+  const paymentDetail = useMemo(() => {
+    const decoded = decodeReceiptPdfItemsPayload(receipt.currency || "");
+    return decoded.paymentDetail || "";
+  }, [receipt.currency]);
 
   const getClientName = useCallback(
     (id: number): string => {
@@ -424,7 +429,7 @@ export default function ReceiptCard({
       <p className="text-xs opacity-70">Método de pago</p>
       <p className="mt-1 text-sm font-medium">
         {/* currency = detalle legado / texto para PDF; payment_method = nombre corto */}
-        {receipt.currency || receipt.payment_method || "—"}
+        {receipt.payment_method || paymentDetail || "—"}
       </p>
     </div>
   );

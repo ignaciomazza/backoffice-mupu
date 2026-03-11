@@ -31,6 +31,7 @@ import {
   toCsvHeaderRow,
   toCsvRow,
 } from "@/utils/csv";
+import { decodeReceiptPdfItemsPayload } from "@/utils/receipts/pdfItemsPayload";
 import ExportSheetButton from "@/components/ui/ExportSheetButton";
 import type {
   BookingOption,
@@ -244,6 +245,7 @@ type BookingServiceItem = {
   card_interest?: number | string | null;
   taxableCardInterest?: number | string | null;
   vatOnCardInterest?: number | string | null;
+  pending_amount?: number | string | null;
   departure_date?: string | null;
   return_date?: string | null;
 };
@@ -565,6 +567,13 @@ export default function ReceiptsPage() {
     },
     [fmtMoney, getReceiptDisplayNumber],
   );
+  const getReceiptPaymentLabel = useCallback(
+    (r: Pick<ReceiptRow, "payment_method" | "currency">) => {
+      const decoded = decodeReceiptPdfItemsPayload(r.currency || "");
+      return (r.payment_method || decoded.paymentDetail || "").trim();
+    },
+    [],
+  );
 
   /* ---------- Forzar owner para vendedor ---------- */
   useEffect(() => {
@@ -581,12 +590,12 @@ export default function ReceiptsPage() {
     const fromData = Array.from(
       new Set(
         data
-          .map((r) => (r.payment_method || r.currency || "").trim())
+          .map((r) => getReceiptPaymentLabel(r))
           .filter(Boolean),
       ),
     );
     return uniqSorted(fromData);
-  }, [finance?.paymentMethods, data]);
+  }, [finance?.paymentMethods, data, getReceiptPaymentLabel]);
 
   const accountOptions = useMemo(() => {
     const fromConfig =
@@ -912,7 +921,7 @@ export default function ReceiptsPage() {
               { value: String(r.booking?.id_booking ?? "") },
               { value: r._titularFull },
               { value: r._ownerFull },
-              { value: r.payment_method || r.currency || "" },
+              { value: getReceiptPaymentLabel(r) },
               { value: r.account || "" },
               { value: displayCurrency },
               { value: formatCsvNumber(r._displayAmount), numeric: true },
@@ -1115,6 +1124,10 @@ export default function ReceiptsPage() {
           typeof s?.vatOnCardInterest === "number"
             ? s.vatOnCardInterest
             : Number(s?.vatOnCardInterest ?? 0);
+        const pendingAmount =
+          typeof s?.pending_amount === "number"
+            ? s.pending_amount
+            : Number(s?.pending_amount ?? 0);
         return {
           id_service: Number.isFinite(id) ? id : 0,
           agency_service_id: Number.isFinite(agencyId) ? agencyId : undefined,
@@ -1131,6 +1144,10 @@ export default function ReceiptsPage() {
             Number.isFinite(cardBase) && cardBase > 0 ? cardBase : undefined,
           vatOnCardInterest:
             Number.isFinite(cardVat) && cardVat > 0 ? cardVat : undefined,
+          pending_amount:
+            Number.isFinite(pendingAmount) && pendingAmount > 0
+              ? pendingAmount
+              : undefined,
           type: s?.type ?? undefined,
           destination: s?.destination ?? s?.destino ?? undefined,
           departure_date: s?.departure_date ?? null,
@@ -1169,10 +1186,10 @@ export default function ReceiptsPage() {
     };
 
     let arr =
+      (await tryFetch(`/api/services?bookingId=${bId}`)) ||
       (await tryFetch(`/api/bookings/${bId}/services`)) ||
       (await tryFetch(`/api/bookings/${bId}?include=services`)) ||
       (await tryFetch(`/api/bookings/${bId}`)) ||
-      (await tryFetch(`/api/services?bookingId=${bId}`)) ||
       (await tryFetch(`/api/services/by-booking/${bId}`));
 
     if (!arr) arr = [];
@@ -1992,7 +2009,7 @@ export default function ReceiptsPage() {
                       const associationClass = isUnlinked
                         ? ASSOCIATION_BADGE.unlinked
                         : ASSOCIATION_BADGE.linked;
-                      const methodLabel = r.payment_method || r.currency || "—";
+                      const methodLabel = getReceiptPaymentLabel(r) || "—";
 
                       return (
                         <tr
@@ -2286,9 +2303,9 @@ export default function ReceiptsPage() {
                           <b>Pax:</b> {r._titularFull}
                         </span>
 
-                        {(r.payment_method || r.currency) && (
+                        {!!getReceiptPaymentLabel(r) && (
                           <span className={CHIP}>
-                            <b>Método:</b> {r.payment_method || r.currency}
+                            <b>Método:</b> {getReceiptPaymentLabel(r)}
                           </span>
                         )}
 

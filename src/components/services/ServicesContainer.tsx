@@ -113,6 +113,7 @@ type BookingServiceItem = {
   card_interest?: number | string | null;
   taxableCardInterest?: number | string | null;
   vatOnCardInterest?: number | string | null;
+  pending_amount?: number | string | null;
 };
 
 interface ServicesContainerProps {
@@ -2643,6 +2644,10 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                                 typeof s?.vatOnCardInterest === "number"
                                   ? s.vatOnCardInterest
                                   : Number(s?.vatOnCardInterest ?? 0);
+                              const pendingAmount =
+                                typeof s?.pending_amount === "number"
+                                  ? s.pending_amount
+                                  : Number(s?.pending_amount ?? 0);
 
                               return {
                                 id_service: Number.isFinite(id) ? id : 0,
@@ -2672,6 +2677,11 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                                 vatOnCardInterest:
                                   Number.isFinite(cardVat) && cardVat > 0
                                     ? cardVat
+                                    : undefined,
+                                pending_amount:
+                                  Number.isFinite(pendingAmount) &&
+                                  pendingAmount > 0
+                                    ? pendingAmount
                                     : undefined,
                                 type: s?.type ?? undefined,
                                 destination:
@@ -2726,14 +2736,12 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                           };
 
                           const arr =
+                            (await tryFetch(`/api/services?bookingId=${bId}`)) ??
                             (await tryFetch(`/api/bookings/${bId}/services`)) ??
                             (await tryFetch(
                               `/api/bookings/${bId}?include=services`,
                             )) ??
                             (await tryFetch(`/api/bookings/${bId}`)) ??
-                            (await tryFetch(
-                              `/api/services?bookingId=${bId}`,
-                            )) ??
                             (await tryFetch(
                               `/api/services/by-booking/${bId}`,
                             )) ??
