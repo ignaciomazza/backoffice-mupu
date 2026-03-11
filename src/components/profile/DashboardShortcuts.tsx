@@ -19,8 +19,9 @@ import {
 } from "@/utils/loadFinancePicks";
 import {
   addDaysToDateKey,
-  formatDateInBuenosAires,
+  formatDateOnlyInBuenosAires,
   toDateKeyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
 } from "@/lib/buenosAiresDate";
 
 /* ===================== tipos mínimos ===================== */
@@ -128,11 +129,39 @@ const weekRangeInBuenosAires = (base = new Date()) => {
 
 function humanDate(dateStr?: string | null): string {
   if (!dateStr) return "";
-  return formatDateInBuenosAires(dateStr, {
+  return formatDateOnlyInBuenosAires(dateStr, {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
   });
+}
+
+function toDateKey(dateStr?: string | null): string | null {
+  if (!dateStr) return null;
+  return toDateKeyInBuenosAiresLegacySafe(dateStr);
+}
+
+function isDateKeyWithinRange(
+  dateKey: string | null,
+  fromKey: string,
+  toKey: string,
+): boolean {
+  return Boolean(dateKey && dateKey >= fromKey && dateKey <= toKey);
+}
+
+function compareDateKeysAsc(
+  aKey: string | null,
+  bKey: string | null,
+  aId: number,
+  bId: number,
+): number {
+  if (aKey && bKey) {
+    if (aKey !== bKey) return aKey.localeCompare(bKey);
+    return aId - bId;
+  }
+  if (aKey) return -1;
+  if (bKey) return 1;
+  return aId - bId;
 }
 
 /* ===================== helpers de dinero ===================== */
@@ -237,7 +266,11 @@ export default function DashboardShortcuts() {
   const [newClientsCount, setNewClientsCount] = useState(0);
   const [totalBookings, setTotalBookings] = useState(0);
   const [pendingBookings, setPendingBookings] = useState<Booking[]>([]);
-  const [travelWeek, setTravelWeek] = useState<Booking[]>([]);
+  const [travelWeek, setTravelWeek] = useState<{
+    departing: Booking[];
+    inTrip: Booking[];
+    returning: Booking[];
+  }>({ departing: [], inTrip: [], returning: [] });
   const [debts, setDebts] = useState<
     { booking: Booking; debtARS: number; debtUSD: number }[]
   >([]);
@@ -486,22 +519,82 @@ export default function DashboardShortcuts() {
           })().catch((e) => console.error("[dashboard] deudas:", e)),
         );
 
-        // 2.d) Viajan esta semana
+        // 2.d) Resumen de viajes (semana actual)
         tasks.push(
           (async () => {
-            const qs = new URLSearchParams({
-              userId: String(p.id_user),
-              from: weekFrom,
-              to: weekTo,
-              take: "60",
-            });
-            const page = await fetchBookingsPage(qs);
+            const collected: Booking[] = [];
+            let cursor: number | null = null;
+
+            for (let i = 0; i < 8; i++) {
+              const qs = new URLSearchParams({
+                userId: String(p.id_user),
+                from: weekFrom,
+                to: weekTo,
+                take: "100",
+              });
+              if (cursor) qs.append("cursor", String(cursor));
+
+              const page = await fetchBookingsPage(qs);
+              collected.push(...page.items);
+
+              cursor = page.nextCursor;
+              if (!cursor) break;
+            }
             if (abortedRef.current) return;
 
-            const onlyWithDates = page.items
-              .filter((b) => b.departure_date || b.return_date)
+            const todayKey = toDateKeyOrToday();
+            const uniqueById = new Map<number, Booking>();
+            for (const booking of collected) uniqueById.set(booking.id_booking, booking);
+            const items = Array.from(uniqueById.values()).filter(
+              (b) => b.departure_date || b.return_date,
+            );
+
+            const departing = items
+              .filter((b) =>
+                isDateKeyWithinRange(toDateKey(b.departure_date), weekFrom, weekTo),
+              )
+              .sort((a, b) =>
+                compareDateKeysAsc(
+                  toDateKey(a.departure_date),
+                  toDateKey(b.departure_date),
+                  a.id_booking,
+                  b.id_booking,
+                ),
+              )
               .slice(0, 6);
-            setTravelWeek(onlyWithDates);
+
+            const inTrip = items
+              .filter((b) => {
+                const depKey = toDateKey(b.departure_date);
+                const retKey = toDateKey(b.return_date);
+                if (!depKey || !retKey) return false;
+                return depKey <= todayKey && retKey >= todayKey;
+              })
+              .sort((a, b) =>
+                compareDateKeysAsc(
+                  toDateKey(a.return_date),
+                  toDateKey(b.return_date),
+                  a.id_booking,
+                  b.id_booking,
+                ),
+              )
+              .slice(0, 6);
+
+            const returning = items
+              .filter((b) =>
+                isDateKeyWithinRange(toDateKey(b.return_date), weekFrom, weekTo),
+              )
+              .sort((a, b) =>
+                compareDateKeysAsc(
+                  toDateKey(a.return_date),
+                  toDateKey(b.return_date),
+                  a.id_booking,
+                  b.id_booking,
+                ),
+              )
+              .slice(0, 6);
+
+            setTravelWeek({ departing, inTrip, returning });
           })().catch((e) => console.error("[dashboard] travel week:", e)),
         );
 
@@ -831,17 +924,22 @@ export default function DashboardShortcuts() {
           )}
         </motion.div>
 
-        {/* Viajan esta semana */}
+        {/* Resumen de viajes */}
         <motion.div
           layout
           variants={{
             hidden: { opacity: 0, y: 16 },
             visible: { opacity: 1, y: 0 },
           }}
-          className={`${glass} ${spanCls(2, 1)} p-6`}
+          className={`${glass} ${spanCls(2, 2)} p-6`}
         >
           <div className="mb-2 flex items-center justify-between">
-            <p className="text-sm font-medium">Viajan esta semana</p>
+            <div>
+              <p className="text-sm font-medium">Movimientos de viaje</p>
+              <p className="text-xs opacity-70">
+                Semana: {humanDate(weekFrom)} - {humanDate(weekTo)}
+              </p>
+            </div>
             <Link
               href={`/bookings?from=${weekFrom}&to=${weekTo}`}
               className="rounded-full bg-sky-600/10 px-3 py-1 text-xs font-medium text-sky-900 shadow-sm hover:bg-sky-600/20 dark:text-white"
@@ -849,32 +947,106 @@ export default function DashboardShortcuts() {
               Ver más
             </Link>
           </div>
-          {travelWeek.length === 0 ? (
-            <p className="text-sm opacity-70">Sin viajes en la semana.</p>
-          ) : (
-            <ul className="space-y-2 text-sm">
-              {travelWeek.map((b) => {
-                const dep = humanDate(b.departure_date);
-                const bookingNumber = b.agency_booking_id ?? b.id_booking;
-                return (
-                  <li
-                    key={b.id_booking}
-                    className="flex items-center justify-between"
-                  >
-                    <Link
-                      href={`/bookings/services/${b.public_id ?? b.id_booking}`}
-                      className="truncate underline decoration-transparent hover:decoration-sky-600"
-                    >
-                      N° {bookingNumber} — {title(b)}
-                    </Link>
-                    <span className="rounded-full bg-sky-600/10 px-2.5 py-0.5 text-[11px]">
-                      {dep}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-sky-500/20 bg-white/20 p-3 dark:bg-white/5">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-100">
+                  Viajan esta semana
+                </p>
+                <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-[11px] font-medium text-sky-900 dark:text-sky-100">
+                  {travelWeek.departing.length}
+                </span>
+              </div>
+              {travelWeek.departing.length === 0 ? (
+                <p className="text-xs opacity-70">Sin salidas en esta semana.</p>
+              ) : (
+                <ul className="space-y-2 text-sm">
+                  {travelWeek.departing.map((b) => {
+                    const bookingNumber = b.agency_booking_id ?? b.id_booking;
+                    return (
+                      <li key={b.id_booking} className="space-y-1">
+                        <Link
+                          href={`/bookings/services/${b.public_id ?? b.id_booking}`}
+                          className="block truncate underline decoration-transparent hover:decoration-sky-600"
+                        >
+                          N° {bookingNumber} — {title(b)}
+                        </Link>
+                        <p className="text-[11px] opacity-80">
+                          Sale: {humanDate(b.departure_date)}
+                        </p>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-amber-500/20 bg-white/20 p-3 dark:bg-white/5">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-100">
+                  En viaje
+                </p>
+                <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[11px] font-medium text-amber-900 dark:text-amber-100">
+                  {travelWeek.inTrip.length}
+                </span>
+              </div>
+              {travelWeek.inTrip.length === 0 ? (
+                <p className="text-xs opacity-70">Nadie está viajando hoy.</p>
+              ) : (
+                <ul className="space-y-2 text-sm">
+                  {travelWeek.inTrip.map((b) => {
+                    const bookingNumber = b.agency_booking_id ?? b.id_booking;
+                    return (
+                      <li key={b.id_booking} className="space-y-1">
+                        <Link
+                          href={`/bookings/services/${b.public_id ?? b.id_booking}`}
+                          className="block truncate underline decoration-transparent hover:decoration-sky-600"
+                        >
+                          N° {bookingNumber} — {title(b)}
+                        </Link>
+                        <p className="text-[11px] opacity-80">
+                          Regresa: {humanDate(b.return_date)}
+                        </p>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-emerald-500/20 bg-white/20 p-3 dark:bg-white/5">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-900 dark:text-emerald-100">
+                  Regresan esta semana
+                </p>
+                <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] font-medium text-emerald-900 dark:text-emerald-100">
+                  {travelWeek.returning.length}
+                </span>
+              </div>
+              {travelWeek.returning.length === 0 ? (
+                <p className="text-xs opacity-70">Sin regresos en esta semana.</p>
+              ) : (
+                <ul className="space-y-2 text-sm">
+                  {travelWeek.returning.map((b) => {
+                    const bookingNumber = b.agency_booking_id ?? b.id_booking;
+                    return (
+                      <li key={b.id_booking} className="space-y-1">
+                        <Link
+                          href={`/bookings/services/${b.public_id ?? b.id_booking}`}
+                          className="block truncate underline decoration-transparent hover:decoration-sky-600"
+                        >
+                          N° {bookingNumber} — {title(b)}
+                        </Link>
+                        <p className="text-[11px] opacity-80">
+                          Regresa: {humanDate(b.return_date)}
+                        </p>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
         </motion.div>
 
         {/* Salir */}
