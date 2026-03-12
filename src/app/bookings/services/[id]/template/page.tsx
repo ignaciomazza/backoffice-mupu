@@ -161,8 +161,23 @@ function joinPieces(items: Array<string | null | undefined>) {
   return items.filter((item) => item && String(item).trim()).join(" | ");
 }
 
-function formatPassenger(p: Client) {
-  const name = `${p.last_name || ""}, ${p.first_name || ""}`.trim();
+type PassengerRow = {
+  name: string;
+  birth: string;
+  extra: string;
+};
+
+function formatPassengerName(p: Client) {
+  const last = String(p.last_name || "").trim();
+  const first = String(p.first_name || "").trim();
+  const company = String(p.company_name || "").trim();
+  if (last && first) return `${last}, ${first}`;
+  if (last || first) return last || first;
+  return company || "Pasajero";
+}
+
+function formatNamedPassenger(p: Client): PassengerRow {
+  const name = formatPassengerName(p);
   const birth = p.birth_date ? formatDate(p.birth_date) : "—";
   const extra = joinPieces([
     p.dni_number ? `DNI: ${p.dni_number}` : "",
@@ -175,28 +190,84 @@ function formatPassenger(p: Client) {
   };
 }
 
-function buildTotalPriceValue(
-  booking: BookingPayload | null,
-  services: ServiceWithOperator[],
-  allServicesCount?: number,
-): string {
-  if (
-    booking?.totalSale != null &&
-    typeof allServicesCount === "number" &&
-    services.length === allServicesCount
-  ) {
-    return formatMoney(booking.totalSale, "ARS");
+function formatSimpleCompanionPassenger(
+  companion: NonNullable<BookingPayload["simple_companions"]>[number],
+  fallbackName: string,
+): PassengerRow {
+  const categoryName = String(companion.category?.name || "").trim();
+  const categoryCode = String(companion.category?.code || "").trim();
+  const notes = String(companion.notes || "").trim();
+  const ageRaw = Number(companion.age);
+  const hasAge = Number.isFinite(ageRaw) && ageRaw >= 0;
+
+  const name = categoryName || fallbackName;
+  const birth = hasAge ? `Edad: ${Math.trunc(ageRaw)}` : "—";
+  const extra = joinPieces([
+    categoryCode ? `Cat: ${categoryCode}` : "",
+    notes ? `Obs: ${notes}` : "",
+  ]);
+
+  return {
+    name,
+    birth,
+    extra: extra || "—",
+  };
+}
+
+function buildCompanionRows(booking: BookingPayload): PassengerRow[] {
+  const rows: PassengerRow[] = [];
+  const seenClientIds = new Set<number>();
+
+  const titularId = Number(booking.titular?.id_client);
+  if (Number.isFinite(titularId)) {
+    seenClientIds.add(titularId);
   }
 
-  const sums: Record<string, number> = {};
-  services.forEach((service) => {
-    const amount = Number(service.sale_price);
-    if (!Number.isFinite(amount)) return;
-    const cur = (service.currency || "ARS").toUpperCase();
-    sums[cur] = (sums[cur] || 0) + amount;
-  });
+  const pushCompanionClient = (client?: Client | null) => {
+    if (!client) return;
+    const id = Number(client.id_client);
+    if (Number.isFinite(id) && seenClientIds.has(id)) return;
+    if (Number.isFinite(id)) seenClientIds.add(id);
+    rows.push(formatNamedPassenger(client));
+  };
 
-  const entries = Object.entries(sums);
+  if (Array.isArray(booking.clients)) {
+    booking.clients.forEach((client) => pushCompanionClient(client));
+  }
+  if (Array.isArray(booking.simple_companions)) {
+    booking.simple_companions.forEach((companion) => {
+      const fallbackName = `Pasajero ${rows.length + 1}`;
+      rows.push(formatSimpleCompanionPassenger(companion, fallbackName));
+    });
+  }
+
+  return rows;
+}
+
+function buildTitularRow(booking: BookingPayload): PassengerRow | null {
+  return booking.titular ? formatNamedPassenger(booking.titular) : null;
+}
+
+function normalizeSaleTotals(input: unknown): Record<string, number> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  const out: Record<string, number> = {};
+  for (const [keyRaw, val] of Object.entries(input as Record<string, unknown>)) {
+    const key = String(keyRaw || "")
+      .toUpperCase()
+      .trim();
+    if (!key) continue;
+    const amount =
+      typeof val === "number" ? val : Number(String(val).replace(",", "."));
+    if (!Number.isFinite(amount) || amount < 0) continue;
+    out[key] = amount;
+  }
+  return out;
+}
+
+function formatTotalsByCurrency(totals: Record<string, number>): string {
+  const entries = Object.entries(totals).filter(([, amount]) =>
+    Number.isFinite(amount),
+  );
   if (entries.length === 0) return "—";
   if (entries.length === 1) {
     const [cur, total] = entries[0]!;
@@ -208,6 +279,30 @@ function buildTotalPriceValue(
         `${cur} ${formatMoney(total, cur).replace(cur, "").trim()}`,
     )
     .join(" + ");
+}
+
+function buildTotalPriceValue(
+  booking: BookingPayload | null,
+  services: ServiceWithOperator[],
+): string {
+  const bookingSaleTotals = normalizeSaleTotals(booking?.sale_totals);
+  if (Object.keys(bookingSaleTotals).length > 0) {
+    return formatTotalsByCurrency(bookingSaleTotals);
+  }
+
+  if (booking?.totalSale != null) {
+    return formatMoney(booking.totalSale, "ARS");
+  }
+
+  const sums: Record<string, number> = {};
+  services.forEach((service) => {
+    const amount = Number(service.sale_price);
+    if (!Number.isFinite(amount)) return;
+    const cur = (service.currency || "ARS").toUpperCase();
+    sums[cur] = (sums[cur] || 0) + amount;
+  });
+
+  return formatTotalsByCurrency(sums);
 }
 
 function contentBlockToOrdered(
@@ -694,35 +789,47 @@ export default function BookingVoucherPage() {
       text: PAGE_TITLE,
       level: 1,
     });
-    // Se omite el subtítulo con número de reserva por pedido
-    blocks.push({
-      id: makeId("summary_title"),
-      type: "subtitle",
-      mode: "fixed",
-      text: "Detalle de la reserva",
-    });
-    blocks.push({
-      id: makeId("summary_list"),
-      type: "list",
-      mode: "fixed",
-      items: [
-        `Titular: ${
-          `${booking.titular?.first_name || ""} ${booking.titular?.last_name || ""}`.trim() ||
-          "—"
-        }`,
-        `Salida: ${formatDate(booking.departure_date)}`,
-        `Regreso: ${formatDate(booking.return_date)}`,
-      ],
-    });
-
     if (booking.details) {
       blocks.push({
-        id: makeId("details"),
-        type: "paragraph",
+        id: makeId("details_top"),
+        type: "subtitle",
         mode: "fixed",
         text: booking.details,
       });
     }
+    // Resumen inicial de la reserva
+    const reservationNumber =
+      booking.agency_booking_id != null
+        ? String(booking.agency_booking_id)
+        : booking.id_booking != null
+          ? String(booking.id_booking)
+          : "—";
+    blocks.push({
+      id: makeId("summary_title"),
+      type: "subtitle",
+      mode: "fixed",
+      text: `Detalle de la reserva · N° ${reservationNumber}`,
+    });
+    const titularName = formatPassengerName(booking.titular);
+    blocks.push({
+      id: makeId("summary_meta"),
+      type: "keyValue",
+      mode: "fixed",
+      pairs: [
+        {
+          key: "Cliente",
+          value: titularName || "—",
+        },
+        {
+          key: "Salida",
+          value: formatDate(booking.departure_date),
+        },
+        {
+          key: "Regreso",
+          value: formatDate(booking.return_date),
+        },
+      ],
+    });
 
     if (booking.observation) {
       blocks.push({
@@ -741,36 +848,61 @@ export default function BookingVoucherPage() {
 
     blocks.push({
       id: makeId("pax_title"),
+      type: "subtitle",
+      mode: "fixed",
+      text: `Pasajeros (${
+        Number.isFinite(Number(booking.pax_count))
+          ? String(Math.max(0, Math.trunc(Number(booking.pax_count))))
+          : "—"
+      })`,
+    });
+    const titularRow = buildTitularRow(booking);
+    const companionRows = buildCompanionRows(booking);
+
+    blocks.push({
+      id: makeId("pax_titular_title"),
       type: "heading",
       mode: "fixed",
-      text: "Pasajeros",
-      level: 2,
+      text: "Titular",
+      level: 3,
     });
-    blocks.push({
-      id: makeId("pax_count"),
-      type: "paragraph",
-      mode: "fixed",
-      text: `Cantidad de pasajeros: ${
-        Number.isFinite(Number(booking.pax_count))
-          ? String(booking.pax_count)
-          : "—"
-      }`,
-    });
-
-    const paxItems = Array.isArray(booking.clients)
-      ? booking.clients.map(formatPassenger)
-      : [];
-    if (paxItems.length === 0) {
+    if (titularRow) {
       blocks.push({
-        id: makeId("pax_empty"),
-        type: "paragraph",
+        id: makeId("pax_titular"),
+        type: "threeColumns",
         mode: "fixed",
-        text: "Sin pasajeros cargados.",
+        left: titularRow.name,
+        center: titularRow.birth,
+        right: titularRow.extra,
       });
     } else {
-      paxItems.forEach((pax, idx) => {
+      blocks.push({
+        id: makeId("pax_titular_empty"),
+        type: "paragraph",
+        mode: "fixed",
+        text: "Sin titular cargado.",
+      });
+    }
+
+    blocks.push({
+      id: makeId("pax_companions_title"),
+      type: "heading",
+      mode: "fixed",
+      text: "Acompañantes",
+      level: 3,
+    });
+
+    if (companionRows.length === 0) {
+      blocks.push({
+        id: makeId("pax_companions_empty"),
+        type: "paragraph",
+        mode: "fixed",
+        text: "Sin acompañantes cargados.",
+      });
+    } else {
+      companionRows.forEach((pax, idx) => {
         blocks.push({
-          id: makeId(`pax_${idx}`),
+          id: makeId(`pax_companion_${idx}`),
           type: "threeColumns",
           mode: "fixed",
           left: pax.name,
@@ -823,11 +955,7 @@ export default function BookingVoucherPage() {
       pairs: [
         {
           key: "Precio final",
-          value: buildTotalPriceValue(
-            booking,
-            selectedServices,
-            services.length,
-          ),
+          value: buildTotalPriceValue(booking, services),
         },
       ],
     });
@@ -1185,6 +1313,9 @@ export default function BookingVoucherPage() {
     { type: "twoColumns", label: "Dos columnas" },
     { type: "threeColumns", label: "Tres columnas" },
   ];
+  const addEditableBlock = useCallback((type: BlockType) => {
+    setEditableBlocks((prev) => [...prev, makeNewBlock(type)]);
+  }, []);
 
   const panelBody = (() => {
     if (studioPanel === "system") {
@@ -1653,26 +1784,39 @@ export default function BookingVoucherPage() {
                 </div>
 
                 <div className={PANEL_CLASS}>
-                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <div className="mb-3">
                     <div>
                       <h2 className="text-base font-semibold">Preview editable</h2>
                       <p className="text-sm text-slate-500 dark:text-slate-300">
                         Editá, reordená y agregá bloques antes de descargar.
                       </p>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                  </div>
+
+                  <div className="pointer-events-none sticky top-2 z-[118] mb-4 md:top-3">
+                    <div className="pointer-events-auto flex flex-nowrap items-center gap-2 overflow-x-auto rounded-2xl border border-sky-300/35 bg-white/90 p-2 shadow-lg shadow-sky-900/15 backdrop-blur dark:border-sky-200/20 dark:bg-slate-950/85">
                       {quickAddItems.map((item) => (
                         <button
                           key={item.type}
                           type="button"
-                          onClick={() =>
-                            setEditableBlocks((prev) => [
-                              ...prev,
-                              makeNewBlock(item.type),
-                            ])
-                          }
-                          className="rounded-full border border-white/30 bg-white/40 px-3 py-1 text-xs font-medium text-sky-950 shadow-sm shadow-sky-950/10 transition hover:scale-[0.98] dark:border-white/10 dark:bg-white/10 dark:text-white"
+                          onClick={() => addEditableBlock(item.type)}
+                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-sky-300/50 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-900 shadow-sm transition hover:scale-[0.98] dark:border-sky-300/30 dark:bg-sky-500/20 dark:text-sky-100"
+                          title={`Agregar ${item.label}`}
                         >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 24 24"
+                            className="size-4"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={1.5}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M12 4.5v15m7.5-7.5h-15"
+                            />
+                          </svg>
                           + {item.label}
                         </button>
                       ))}

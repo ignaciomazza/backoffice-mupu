@@ -57,6 +57,32 @@ function wsFor(multiline: boolean): React.CSSProperties {
     : { ...WRAP_SAFE, whiteSpace: "pre-wrap", tabSize: 4 };
 }
 
+function normalizeGroupedDragOrder(
+  nextIds: string[],
+  draggingId: string | null,
+  groupIds: string[],
+): string[] {
+  if (!draggingId || groupIds.length <= 1) return nextIds;
+  const groupSet = new Set(groupIds);
+  const nonSelectedIds = nextIds.filter((id) => !groupSet.has(id));
+  if (nonSelectedIds.length + groupIds.length !== nextIds.length) return nextIds;
+  const dragIndex = nextIds.indexOf(draggingId);
+  if (dragIndex < 0) return nextIds;
+  let insertIndex = 0;
+  for (let i = 0; i < dragIndex; i += 1) {
+    if (!groupSet.has(nextIds[i])) insertIndex += 1;
+  }
+  const boundedIndex = Math.max(0, Math.min(nonSelectedIds.length, insertIndex));
+  const rebuilt = [...nonSelectedIds];
+  rebuilt.splice(boundedIndex, 0, ...groupIds);
+  return rebuilt;
+}
+
+function readDocTop(el: HTMLElement): number {
+  const scrollY = typeof window !== "undefined" ? window.scrollY : 0;
+  return el.getBoundingClientRect().top + scrollY;
+}
+
 /** Normaliza saltos/espacios problemáticos */
 function sanitizeText(raw: string): string {
   let s = raw ?? "";
@@ -492,6 +518,12 @@ type BlockItemProps = {
   block: OrderedBlock;
   label?: string;
   mode: "fixed" | "form";
+  isSelected: boolean;
+  onToggleSelected: () => void;
+  isGroupDragActive?: boolean;
+  isInDraggingGroup?: boolean;
+  isGroupDragMate?: boolean;
+  groupDragOffsetY?: number;
   canToggleMode: boolean;
   canRemove: boolean;
   canEdit: boolean;
@@ -506,7 +538,7 @@ type BlockItemProps = {
   children: React.ReactNode;
   onDragStart: () => void;
   onDragEnd: () => void;
-  onDragMove: (y: number) => void;
+  onDragMove: (y: number, offsetY: number) => void;
   isDraggingAny: boolean;
   isDraggingSelf: boolean;
   itemRef?: React.Ref<HTMLDivElement>;
@@ -516,6 +548,12 @@ const BlockItem: React.FC<BlockItemProps> = ({
   block,
   label,
   mode,
+  isSelected,
+  onToggleSelected,
+  isGroupDragActive = false,
+  isInDraggingGroup = false,
+  isGroupDragMate = false,
+  groupDragOffsetY = 0,
   canToggleMode,
   canRemove,
   canEdit,
@@ -560,6 +598,8 @@ const BlockItem: React.FC<BlockItemProps> = ({
   const toggleActionLabel =
     mode === "fixed" ? "Desbloquear bloque" : "Bloquear bloque";
   const toggleActionShort = mode === "fixed" ? "Desbloquear" : "Bloquear";
+  const groupActionLabel = isSelected ? "Quitar del grupo" : "Agregar al grupo";
+  const groupActionShort = isSelected ? "En grupo" : "Agrupar";
   const toggleChipClass = controlsOnDarkSurface
     ? mode === "fixed"
       ? "border-emerald-300/45 bg-emerald-500/25 text-emerald-100 hover:bg-emerald-500/35"
@@ -578,6 +618,13 @@ const BlockItem: React.FC<BlockItemProps> = ({
   const controlWeightBadgeClass = controlsOnDarkSurface
     ? "inline-flex size-4 items-center justify-center rounded-full border border-white/30 bg-white/20 text-[10px] font-black text-slate-100"
     : "inline-flex size-4 items-center justify-center rounded-full border border-slate-900/15 bg-white/75 text-[10px] font-black text-slate-700";
+  const groupChipClass = controlsOnDarkSurface
+    ? isSelected
+      ? "border-sky-200/55 bg-sky-500/35 text-sky-50 hover:bg-sky-500/45"
+      : "border-white/35 bg-white/18 text-slate-100 hover:bg-white/28"
+    : isSelected
+      ? "border-sky-500/45 bg-sky-500/16 text-sky-700 hover:bg-sky-500/22"
+      : "border-slate-900/15 bg-white/70 text-slate-700 hover:bg-white/85";
   const controlSelectClass = controlsOnDarkSurface
     ? "rounded-full border-0 bg-transparent px-1.5 py-0.5 text-[10px] text-slate-100 outline-none ring-sky-200/40 transition focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60"
     : "rounded-full border-0 bg-transparent px-1.5 py-0.5 text-[10px] text-slate-700 outline-none ring-sky-200/60 transition focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60";
@@ -622,31 +669,45 @@ const BlockItem: React.FC<BlockItemProps> = ({
       dragControls={controls}
       dragElastic={0.18}
       dragMomentum={false}
-      layout="position"
+      layout={isGroupDragActive && isInDraggingGroup ? undefined : "position"}
       animate={{
-        opacity: isDraggingAny && !isDraggingSelf ? 0.85 : 1,
-        scale: isDraggingSelf ? 1.015 : 1,
-        rotate: isDraggingSelf ? 0.2 : 0,
-        boxShadow: isDraggingSelf
+        opacity: isGroupDragActive
+          ? isInDraggingGroup
+            ? 1
+            : 0.8
+          : isDraggingAny && !isDraggingSelf
+            ? 0.85
+            : 1,
+        scale: isDraggingSelf && !isGroupDragActive ? 1.015 : 1,
+        rotate: isDraggingSelf && !isGroupDragActive ? 0.2 : 0,
+        boxShadow: isDraggingSelf && !isGroupDragActive
           ? "0 18px 36px rgba(0,0,0,0.16)"
           : "0 0 0 rgba(0,0,0,0)",
       }}
       transition={{
         type: "spring",
-        stiffness: 360,
-        damping: 32,
-        mass: 0.8,
+        stiffness: 220,
+        damping: 27,
+        mass: 0.92,
       }}
       className="group"
       style={{
         touchAction: isDraggingAny ? "none" : "auto",
-        zIndex: isDraggingSelf ? 20 : "auto",
+        zIndex:
+          isGroupDragActive && isInDraggingGroup
+            ? "auto"
+            : isDraggingSelf
+              ? 20
+              : "auto",
       }}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onDrag={(e, info) => {
         const clientY = getClientY(e);
-        onDragMove(Number.isFinite(clientY) ? clientY : info.point.y);
+        onDragMove(
+          Number.isFinite(clientY) ? clientY : info.point.y,
+          info.offset.y,
+        );
       }}
     >
       <div
@@ -665,6 +726,39 @@ const BlockItem: React.FC<BlockItemProps> = ({
               controlBarToneClass,
             )}
           >
+            <button
+              type="button"
+              onClick={onToggleSelected}
+              className={cx(controlChipClass, groupChipClass, "px-2 py-1")}
+              title={groupActionLabel}
+              aria-label={groupActionLabel}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                className="size-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.6}
+              >
+                {isSelected ? (
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4.5 12.75 9 17.25 19.5 6.75"
+                  />
+                ) : (
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M8.25 7.5h11.25M8.25 12h11.25m-11.25 4.5h11.25M4.5 7.5h.008v.008H4.5V7.5Zm0 4.5h.008v.008H4.5V12Zm0 4.5h.008v.008H4.5v-.008Z"
+                  />
+                )}
+              </svg>
+              <span className="hidden text-[11px] font-medium md:inline">
+                {groupActionShort}
+              </span>
+            </button>
             <button
               type="button"
               onPointerDown={(e) => {
@@ -810,7 +904,21 @@ const BlockItem: React.FC<BlockItemProps> = ({
             "rounded-xl px-3 transition-colors hover:bg-white/5",
             options.blockPaddingYClass ?? "py-2",
           )}
-          style={{ border: `1px solid ${options.dividerColor}` }}
+          style={{
+            border: `1px solid ${options.dividerColor}`,
+            boxShadow: isSelected
+              ? `0 0 0 2px ${options.accentColor} inset`
+              : undefined,
+            transform: isGroupDragMate
+              ? `translate3d(0, ${groupDragOffsetY}px, 0)`
+              : undefined,
+            transition: isGroupDragMate
+              ? isDraggingAny
+                ? "none"
+                : "transform 180ms cubic-bezier(0.22, 1, 0.36, 1)"
+              : undefined,
+            willChange: isGroupDragMate ? "transform" : undefined,
+          }}
         >
           {showMeta && (
             <div
@@ -820,6 +928,39 @@ const BlockItem: React.FC<BlockItemProps> = ({
                 controlBarToneClass,
               )}
             >
+              <button
+                type="button"
+                onClick={onToggleSelected}
+                className={cx(controlChipClass, groupChipClass, "px-2 py-1")}
+                title={groupActionLabel}
+                aria-label={groupActionLabel}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  className="size-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.6}
+                >
+                  {isSelected ? (
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M4.5 12.75 9 17.25 19.5 6.75"
+                    />
+                  ) : (
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M8.25 7.5h11.25M8.25 12h11.25m-11.25 4.5h11.25M4.5 7.5h.008v.008H4.5V7.5Zm0 4.5h.008v.008H4.5V12Zm0 4.5h.008v.008H4.5v-.008Z"
+                    />
+                  )}
+                </svg>
+                <span className="hidden text-[11px] font-medium lg:inline">
+                  {groupActionShort}
+                </span>
+              </button>
               <button
                 type="button"
                 onPointerDown={(e) => {
@@ -1610,8 +1751,16 @@ const BlocksCanvas: React.FC<BlocksCanvasProps> = ({
   const [dragOrder, setDragOrder] = useState(order);
   const [isDragging, setIsDragging] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [dropIndicatorY, setDropIndicatorY] = useState<number | null>(null);
+  const [groupDragOffsetY, setGroupDragOffsetY] = useState(0);
+  const [groupDragMemberIds, setGroupDragMemberIds] = useState<string[]>([]);
   const dragOrderRef = useRef<string[]>(order);
+  const draggingIdRef = useRef<string | null>(null);
+  const groupDragActiveRef = useRef(false);
+  const groupDragIdsRef = useRef<string[]>([]);
+  const groupDragBaseTopRef = useRef(new Map<string, number>());
+  const dragFinalizeDoneRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef(new Map<string, HTMLDivElement | null>());
   const pointerYRef = useRef<number | null>(null);
@@ -1626,6 +1775,7 @@ const BlocksCanvas: React.FC<BlocksCanvasProps> = ({
   );
 
   const handleReorder = useCallback((nextIds: string[]) => {
+    if (groupDragActiveRef.current) return;
     dragOrderRef.current = nextIds;
     setDragOrder(nextIds);
   }, []);
@@ -1645,8 +1795,21 @@ const BlocksCanvas: React.FC<BlocksCanvasProps> = ({
     if (!isDragging) {
       setDropIndicatorY(null);
       pointerYRef.current = null;
+      groupDragActiveRef.current = false;
+      groupDragIdsRef.current = [];
+      groupDragBaseTopRef.current.clear();
+      setGroupDragOffsetY(0);
+      setGroupDragMemberIds([]);
     }
   }, [isDragging]);
+
+  useEffect(() => {
+    const knownIds = new Set(order);
+    setSelectedIds((prev) => {
+      const next = prev.filter((id) => knownIds.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [order]);
 
   useEffect(() => {
     if (!isDragging && draggingId) {
@@ -1660,6 +1823,11 @@ const BlocksCanvas: React.FC<BlocksCanvasProps> = ({
       .map((id) => byId.get(id))
       .filter(Boolean) as OrderedBlock[];
   }, [blocks, dragOrder]);
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const groupDragMemberSet = useMemo(
+    () => new Set(groupDragMemberIds),
+    [groupDragMemberIds],
+  );
 
   const commitReorder = useCallback(
     (nextIds: string[]) => {
@@ -1674,6 +1842,23 @@ const BlocksCanvas: React.FC<BlocksCanvasProps> = ({
     },
     [blocks, onChange],
   );
+
+  const finalizeDragOrder = useCallback(() => {
+    const finalIds = normalizeGroupedDragOrder(
+      dragOrderRef.current,
+      draggingIdRef.current,
+      groupDragIdsRef.current,
+    );
+    dragOrderRef.current = finalIds;
+    setDragOrder(finalIds);
+    groupDragActiveRef.current = false;
+    groupDragIdsRef.current = [];
+    groupDragBaseTopRef.current.clear();
+    setGroupDragOffsetY(0);
+    setGroupDragMemberIds([]);
+    draggingIdRef.current = null;
+    commitReorder(finalIds);
+  }, [commitReorder]);
 
   const updateDropIndicator = useCallback((pointerY: number) => {
     const container = containerRef.current;
@@ -1703,11 +1888,62 @@ const BlocksCanvas: React.FC<BlocksCanvasProps> = ({
   }, []);
 
   const handleDragMove = useCallback(
-    (pointerY: number) => {
+    (pointerY: number, offsetY: number) => {
       pointerYRef.current = pointerY;
+      if (groupDragActiveRef.current) {
+        setGroupDragOffsetY(offsetY);
+        const groupIds = groupDragIdsRef.current;
+        if (groupIds.length > 1) {
+          const groupSet = new Set(groupIds);
+          const baseIds = dragOrderRef.current;
+          const nonGroupIds = baseIds.filter((id) => !groupSet.has(id));
+          if (nonGroupIds.length + groupIds.length === baseIds.length) {
+            let insertIndex = nonGroupIds.length;
+            for (let i = 0; i < nonGroupIds.length; i += 1) {
+              const el = itemRefs.current.get(nonGroupIds[i]);
+              if (!el) continue;
+              const rect = el.getBoundingClientRect();
+              const midpoint = rect.top + rect.height / 2;
+              if (pointerY < midpoint) {
+                insertIndex = i;
+                break;
+              }
+            }
+            const nextIds = [...nonGroupIds];
+            nextIds.splice(insertIndex, 0, ...groupIds);
+            const same =
+              nextIds.length === baseIds.length &&
+              nextIds.every((id, idx) => id === baseIds[idx]);
+            if (!same) {
+              dragOrderRef.current = nextIds;
+              setDragOrder(nextIds);
+            }
+          }
+        }
+      }
       updateDropIndicator(pointerY);
     },
     [updateDropIndicator],
+  );
+
+  const getCompensatedGroupOffset = useCallback(
+    (id: string): number => {
+      if (!groupDragActiveRef.current) return 0;
+      const anchorId = draggingIdRef.current ?? groupDragIdsRef.current[0] ?? id;
+      const anchorBaseTop = groupDragBaseTopRef.current.get(anchorId);
+      const anchorEl = itemRefs.current.get(anchorId);
+      const anchorDelta =
+        anchorBaseTop != null && anchorEl
+          ? readDocTop(anchorEl) - anchorBaseTop
+          : groupDragOffsetY;
+      const baseTop = groupDragBaseTopRef.current.get(id);
+      const el = itemRefs.current.get(id);
+      if (baseTop == null || !el) return anchorDelta;
+      const currentTop = readDocTop(el);
+      const ownLayoutDrift = currentTop - baseTop;
+      return anchorDelta - ownLayoutDrift;
+    },
+    [groupDragOffsetY],
   );
 
   const startAutoScroll = useCallback(() => {
@@ -1749,6 +1985,19 @@ const BlocksCanvas: React.FC<BlocksCanvasProps> = ({
     }
   }, []);
 
+  const completeDrag = useCallback(() => {
+    if (dragFinalizeDoneRef.current) return;
+    dragFinalizeDoneRef.current = true;
+    requestAnimationFrame(() => {
+      setIsDragging(false);
+      setDraggingId(null);
+      pointerYRef.current = null;
+      setDropIndicatorY(null);
+      stopAutoScroll();
+      finalizeDragOrder();
+    });
+  }, [finalizeDragOrder, stopAutoScroll]);
+
   useEffect(() => {
     if (isDragging) {
       startAutoScroll();
@@ -1761,14 +2010,7 @@ const BlocksCanvas: React.FC<BlocksCanvasProps> = ({
 
   useEffect(() => {
     if (!isDragging) return;
-    const handleStop = () => {
-      setIsDragging(false);
-      setDraggingId(null);
-      pointerYRef.current = null;
-      setDropIndicatorY(null);
-      stopAutoScroll();
-      commitReorder(dragOrderRef.current);
-    };
+    const handleStop = () => completeDrag();
     window.addEventListener("pointerup", handleStop, { passive: true });
     window.addEventListener("pointercancel", handleStop, { passive: true });
     window.addEventListener("mouseup", handleStop, { passive: true });
@@ -1781,7 +2023,7 @@ const BlocksCanvas: React.FC<BlocksCanvasProps> = ({
       window.removeEventListener("touchend", handleStop);
       window.removeEventListener("blur", handleStop);
     };
-  }, [commitReorder, isDragging, stopAutoScroll]);
+  }, [completeDrag, isDragging]);
 
   const remove = useCallback(
     (id: string) => {
@@ -1813,6 +2055,12 @@ const BlocksCanvas: React.FC<BlocksCanvasProps> = ({
     [blocks, onChange],
   );
 
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }, []);
+
   const resolveMode = (b: OrderedBlock): "fixed" | "form" =>
     getMode ? getMode(b) : b.origin === "form" ? "form" : "fixed";
 
@@ -1843,6 +2091,8 @@ const BlocksCanvas: React.FC<BlocksCanvasProps> = ({
           const canRemove = !readOnly || allowRemoveLocked;
           const label = getLabel ? getLabel(b, idx) : b.label;
           const mode = resolveMode(b);
+          const isGroupDragActive = isDragging && groupDragMemberIds.length > 1;
+          const isInDraggingGroup = isDragging && groupDragMemberSet.has(b.id);
           const headingLevel =
             b.type === "heading"
               ? ((b.value as HeadingV | undefined)?.level ?? 1)
@@ -1863,6 +2113,14 @@ const BlocksCanvas: React.FC<BlocksCanvasProps> = ({
               block={b}
               label={label}
               mode={mode}
+              isSelected={selectedSet.has(b.id)}
+              onToggleSelected={() => toggleSelected(b.id)}
+              isGroupDragActive={isGroupDragActive}
+              isInDraggingGroup={isInDraggingGroup}
+              isGroupDragMate={
+                isInDraggingGroup && draggingId !== b.id
+              }
+              groupDragOffsetY={getCompensatedGroupOffset(b.id)}
               canToggleMode={canToggleMode ? canToggleMode(b) : true}
               onRemove={() => remove(b.id)}
               canEdit={!readOnly}
@@ -1877,16 +2135,39 @@ const BlocksCanvas: React.FC<BlocksCanvasProps> = ({
               options={options}
               showMeta={showMeta}
               onDragStart={() => {
+                dragFinalizeDoneRef.current = false;
                 setIsDragging(true);
                 setDraggingId(b.id);
+                draggingIdRef.current = b.id;
+                const currentIds = dragOrderRef.current;
+                const shouldDragGroup =
+                  selectedSet.has(b.id) && selectedSet.size > 1;
+                if (shouldDragGroup) {
+                  groupDragActiveRef.current = true;
+                  groupDragIdsRef.current = currentIds.filter((id) =>
+                    selectedSet.has(id),
+                  );
+                  groupDragBaseTopRef.current.clear();
+                  groupDragIdsRef.current.forEach((id) => {
+                    const el = itemRefs.current.get(id);
+                    if (!el) return;
+                    groupDragBaseTopRef.current.set(
+                      id,
+                      readDocTop(el),
+                    );
+                  });
+                  setGroupDragMemberIds(groupDragIdsRef.current);
+                  setGroupDragOffsetY(0);
+                } else {
+                  groupDragActiveRef.current = false;
+                  groupDragIdsRef.current = [];
+                  groupDragBaseTopRef.current.clear();
+                  setGroupDragMemberIds([]);
+                  setGroupDragOffsetY(0);
+                }
               }}
               onDragEnd={() => {
-                setIsDragging(false);
-                setDraggingId(null);
-                pointerYRef.current = null;
-                setDropIndicatorY(null);
-                stopAutoScroll();
-                commitReorder(dragOrderRef.current);
+                completeDrag();
               }}
               onDragMove={handleDragMove}
               isDraggingAny={isDragging}

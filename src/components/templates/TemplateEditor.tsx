@@ -1122,7 +1122,8 @@ const TemplateEditor: React.FC<Props> = ({
           {toolbarMode !== "compact" && (
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">
               Edita los bloques directamente en la vista previa. Arrastra desde
-              el bloque o el boton Mover. Si activas
+              el bloque o el boton Mover. Puedes agrupar varios bloques y al
+              arrastrar uno se moverán juntos. Si activas
               &quot;Editar bloques fijos&quot; tambien puedes editarlos o
               eliminarlos.
             </p>
