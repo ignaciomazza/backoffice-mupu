@@ -1429,6 +1429,8 @@ model QuoteConfig {
   id_agency              Int    @unique
   agency                 Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
+  // "all" (todos), "team" (por equipo), "own" (solo propias)
+  visibility_mode String @default("own")
   required_fields Json?
   hidden_fields   Json?
   custom_fields   Json?

@@ -1,6 +1,8 @@
 import type { NextApiRequest } from "next";
+import type { Prisma } from "@prisma/client";
 import { jwtVerify, type JWTPayload } from "jose";
 import prisma from "@/lib/prisma";
+import { isMissingColumnError } from "@/lib/prismaErrors";
 import { normalizeRole } from "@/utils/permissions";
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -25,6 +27,14 @@ export type QuoteAuth = {
 };
 
 const ADMIN_ROLES = new Set(["gerente", "administrativo", "desarrollador"]);
+
+export type QuoteVisibilityMode = "all" | "team" | "own";
+
+type QuoteScope = {
+  teamIds: number[];
+  userIds: number[];
+  membersByTeam: Record<number, number[]>;
+};
 
 export function getTokenFromRequest(req: NextApiRequest): string | null {
   if (req.cookies?.token) return req.cookies.token;
@@ -89,35 +99,106 @@ export async function resolveQuoteAuth(
   }
 }
 
-export async function getLeaderScope(authUserId: number, authAgencyId: number) {
+export function isQuoteAdminRole(role: string): boolean {
+  return ADMIN_ROLES.has(normalizeRole(role));
+}
+
+export function normalizeQuoteVisibilityMode(
+  value: unknown,
+  fallback: QuoteVisibilityMode = "own",
+): QuoteVisibilityMode {
+  if (value === "all" || value === "team" || value === "own") return value;
+  return fallback;
+}
+
+export async function getQuoteVisibilityMode(
+  authAgencyId: number,
+): Promise<QuoteVisibilityMode> {
+  try {
+    const cfg = await prisma.quoteConfig.findUnique({
+      where: { id_agency: authAgencyId },
+      select: { visibility_mode: true },
+    });
+    return normalizeQuoteVisibilityMode(cfg?.visibility_mode, "own");
+  } catch (error) {
+    if (isMissingColumnError(error, "QuoteConfig.visibility_mode")) {
+      return "own";
+    }
+    throw error;
+  }
+}
+
+async function getScopeByWhere(
+  where: Prisma.SalesTeamWhereInput,
+  authUserId: number,
+): Promise<QuoteScope> {
   const teams = await prisma.salesTeam.findMany({
-    where: {
+    where,
+    include: { user_teams: { select: { id_user: true } } },
+  });
+  const teamIds = teams.map((team) => team.id_team);
+  const userIds = new Set<number>([authUserId]);
+  const membersByTeam: Record<number, number[]> = {};
+
+  teams.forEach((team) => {
+    const ids = team.user_teams.map((ut) => ut.id_user);
+    membersByTeam[team.id_team] = ids;
+    ids.forEach((id) => userIds.add(id));
+  });
+
+  return { teamIds, userIds: Array.from(userIds), membersByTeam };
+}
+
+export async function getTeamScope(
+  authUserId: number,
+  authAgencyId: number,
+): Promise<QuoteScope> {
+  return getScopeByWhere(
+    {
+      id_agency: authAgencyId,
+      user_teams: { some: { id_user: authUserId } },
+    },
+    authUserId,
+  );
+}
+
+export async function getLeaderScope(
+  authUserId: number,
+  authAgencyId: number,
+): Promise<QuoteScope> {
+  return getScopeByWhere(
+    {
       id_agency: authAgencyId,
       user_teams: { some: { user: { id_user: authUserId, role: "lider" } } },
     },
-    include: { user_teams: { select: { id_user: true } } },
-  });
-  const teamIds = teams.map((t) => t.id_team);
-  const userIds = new Set<number>([authUserId]);
-  teams.forEach((t) => t.user_teams.forEach((ut) => userIds.add(ut.id_user)));
-  return { teamIds, userIds: Array.from(userIds) };
-}
-
-export function isQuoteAdminRole(role: string): boolean {
-  return ADMIN_ROLES.has(normalizeRole(role));
+    authUserId,
+  );
 }
 
 export async function canAccessQuoteOwner(
   auth: QuoteAuth,
   ownerUserId: number,
 ): Promise<boolean> {
-  if (isQuoteAdminRole(auth.role)) return true;
   const role = normalizeRole(auth.role);
-  if (role === "vendedor") return ownerUserId === auth.id_user;
-  if (role === "lider") {
-    const scope = await getLeaderScope(auth.id_user, auth.id_agency);
-    return scope.userIds.includes(ownerUserId);
-  }
-  return false;
+  const visibilityMode = await resolveQuoteVisibilityMode(auth);
+  if (visibilityMode === "all") return true;
+  if (visibilityMode === "own") return ownerUserId === auth.id_user;
+
+  const scope =
+    role === "lider"
+      ? await getLeaderScope(auth.id_user, auth.id_agency)
+      : await getTeamScope(auth.id_user, auth.id_agency);
+  return scope.userIds.includes(ownerUserId);
 }
 
+export async function resolveQuoteVisibilityMode(auth: {
+  id_agency: number;
+  role?: string | null;
+}): Promise<QuoteVisibilityMode> {
+  const role = normalizeRole(auth.role);
+  if (isQuoteAdminRole(role)) return "all";
+  if (role === "lider" || role === "vendedor") {
+    return getQuoteVisibilityMode(auth.id_agency);
+  }
+  return "own";
+}

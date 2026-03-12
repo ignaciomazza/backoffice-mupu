@@ -7,8 +7,9 @@ import {
 import { encodePublicId } from "@/lib/publicIds";
 import {
   getLeaderScope,
-  isQuoteAdminRole,
+  getTeamScope,
   resolveQuoteAuth,
+  resolveQuoteVisibilityMode,
 } from "@/lib/quotesAuth";
 import {
   normalizeQuoteBookingDraft,
@@ -165,7 +166,10 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     const cursor = toPositiveInt(cursorRaw);
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
     const role = normalizeRole(auth.role);
-    const isAdmin = isQuoteAdminRole(role);
+    const visibilityMode = await resolveQuoteVisibilityMode({
+      id_agency: auth.id_agency,
+      role,
+    });
 
     const userId = toPositiveInt(
       Array.isArray(req.query.userId) ? req.query.userId[0] : req.query.userId,
@@ -185,74 +189,73 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       where.quote_status = statusScope;
     }
 
-    let leaderTeamIds: number[] = [];
-    let leaderUserIds: number[] = [];
+    const isLeader = role === "lider";
+    if (visibilityMode === "own") {
+      if (userId && userId !== auth.id_user) {
+        return res.status(403).json({ error: "No autorizado." });
+      }
+      if (teamId !== 0) {
+        return res.status(403).json({ error: "No autorizado." });
+      }
+      where.id_user = auth.id_user;
+    } else if (visibilityMode === "team") {
+      const scope = isLeader
+        ? await getLeaderScope(auth.id_user, auth.id_agency)
+        : await getTeamScope(auth.id_user, auth.id_agency);
+      const allowedUserIds = scope.userIds.length ? scope.userIds : [auth.id_user];
+      const allowedTeamIds = new Set(scope.teamIds);
 
-    if (!isAdmin) {
-      if (role === "vendedor") {
-        if (userId && userId !== auth.id_user) {
-          return res.status(403).json({ error: "No autorizado." });
-        }
-        if (teamId !== 0) {
-          return res.status(403).json({ error: "No autorizado." });
-        }
-        where.id_user = auth.id_user;
-      } else if (role === "lider") {
-        const scope = await getLeaderScope(auth.id_user, auth.id_agency);
-        leaderTeamIds = scope.teamIds;
-        leaderUserIds = scope.userIds;
-
-        if (userId && !leaderUserIds.includes(userId)) {
+      if (userId && userId > 0) {
+        if (!allowedUserIds.includes(userId)) {
           return res
             .status(403)
             .json({ error: "No autorizado: usuario fuera de tu equipo." });
         }
-        if (teamId > 0 && !leaderTeamIds.includes(teamId)) {
-          return res
-            .status(403)
-            .json({ error: "No autorizado: equipo fuera de tu alcance." });
-        }
-        if (teamId === -1) {
+        where.id_user = userId;
+      } else if (teamId !== 0) {
+        if (teamId > 0) {
+          if (!allowedTeamIds.has(teamId)) {
+            return res
+              .status(403)
+              .json({ error: "No autorizado: equipo fuera de tu alcance." });
+          }
+          const ids = scope.membersByTeam[teamId] || [];
+          where.id_user = { in: ids.length ? ids : [-1] };
+        } else {
           return res.status(403).json({
-            error: "No autorizado: 'sin equipo' no disponible para líderes.",
+            error: "No autorizado: filtro de equipo fuera de tu alcance.",
           });
         }
       } else {
-        where.id_user = auth.id_user;
+        where.id_user = { in: allowedUserIds };
       }
-    }
+    } else {
+      if (userId && userId > 0) {
+        where.id_user = userId;
+      }
 
-    if (userId && isAdmin) {
-      where.id_user = userId;
-    }
-    if (userId && role === "lider") {
-      where.id_user = userId;
-    }
-
-    if (!userId && teamId !== 0 && role !== "vendedor") {
-      if (teamId > 0) {
-        const team = await prisma.salesTeam.findUnique({
-          where: { id_team: teamId },
-          include: { user_teams: { select: { id_user: true } } },
-        });
-        if (!team || team.id_agency !== auth.id_agency) {
-          return res
-            .status(403)
-            .json({ error: "Equipo inválido para esta agencia." });
+      if (!userId && teamId !== 0) {
+        if (teamId > 0) {
+          const team = await prisma.salesTeam.findUnique({
+            where: { id_team: teamId },
+            include: { user_teams: { select: { id_user: true } } },
+          });
+          if (!team || team.id_agency !== auth.id_agency) {
+            return res
+              .status(403)
+              .json({ error: "Equipo inválido para esta agencia." });
+          }
+          const ids = team.user_teams.map((ut) => ut.id_user);
+          where.id_user = { in: ids.length ? ids : [-1] };
+        } else if (teamId === -1) {
+          const users = await prisma.user.findMany({
+            where: { id_agency: auth.id_agency, sales_teams: { none: {} } },
+            select: { id_user: true },
+          });
+          const unassignedIds = users.map((u) => u.id_user);
+          where.id_user = { in: unassignedIds.length ? unassignedIds : [-1] };
         }
-        const ids = team.user_teams.map((ut) => ut.id_user);
-        where.id_user = { in: ids.length ? ids : [-1] };
-      } else if (teamId === -1 && isAdmin) {
-        const users = await prisma.user.findMany({
-          where: { id_agency: auth.id_agency, sales_teams: { none: {} } },
-          select: { id_user: true },
-        });
-        where.id_user = { in: users.map((u) => u.id_user) };
       }
-    }
-
-    if (!where.id_user && role === "lider") {
-      where.id_user = { in: leaderUserIds.length ? leaderUserIds : [auth.id_user] };
     }
 
     if (q) {

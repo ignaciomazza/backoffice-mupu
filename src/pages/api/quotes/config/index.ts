@@ -26,10 +26,17 @@ const customFieldSchema = z.object({
 });
 
 const putSchema = z.object({
+  visibility_mode: z.enum(["all", "team", "own"]).optional(),
   required_fields: z.array(z.string()).optional(),
   hidden_fields: z.array(z.string()).optional(),
   custom_fields: z.array(customFieldSchema).optional(),
 });
+
+function normalizeQuoteVisibilityMode(value: unknown): "all" | "team" | "own" {
+  return value === "all" || value === "team" || value === "own"
+    ? value
+    : "own";
+}
 
 function canWrite(role: string): boolean {
   return ["gerente", "administrativo", "desarrollador"].includes(
@@ -69,18 +76,24 @@ export default async function handler(
         return res.status(400).json({ error: parsed.error.message });
       }
 
-      const { required_fields, hidden_fields, custom_fields } = parsed.data;
+      const { visibility_mode, required_fields, hidden_fields, custom_fields } =
+        parsed.data;
 
       await prisma.$transaction(async (tx) => {
         const current = await tx.quoteConfig.findUnique({
           where: { id_agency: auth.id_agency },
           select: {
             id_config: true,
+            visibility_mode: true,
             required_fields: true,
             hidden_fields: true,
             custom_fields: true,
           },
         });
+
+        const nextVisibilityMode = normalizeQuoteVisibilityMode(
+          visibility_mode ?? current?.visibility_mode,
+        );
 
         const nextRequired =
           required_fields !== undefined
@@ -109,6 +122,7 @@ export default async function handler(
           await tx.quoteConfig.update({
             where: { id_agency: auth.id_agency },
             data: {
+              visibility_mode: nextVisibilityMode,
               required_fields: requiredValue,
               hidden_fields: hiddenValue,
               custom_fields: customValue,
@@ -126,6 +140,7 @@ export default async function handler(
           data: {
             id_agency: auth.id_agency,
             agency_quote_config_id: agencyConfigId,
+            visibility_mode: nextVisibilityMode,
             required_fields: requiredValue,
             hidden_fields: hiddenValue,
             custom_fields: customValue,
@@ -143,4 +158,3 @@ export default async function handler(
   res.setHeader("Allow", "GET, PUT");
   return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
 }
-

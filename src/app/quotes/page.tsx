@@ -88,6 +88,7 @@ type QuoteItem = {
 };
 
 type QuoteConfigDTO = {
+  visibility_mode?: unknown;
   required_fields?: unknown;
   hidden_fields?: unknown;
   custom_fields?: unknown;
@@ -178,6 +179,7 @@ type QuoteWorkspaceView = "form" | "list";
 type QuoteListView = "card" | "grid" | "table";
 type QuoteStatusScope = "active" | "converted" | "all";
 type QuoteListScope = "mine" | "team" | "agency";
+type QuoteVisibilityMode = "all" | "team" | "own";
 type PresenceFilter = "all" | "with" | "without";
 type MoneyFieldName = "sale_price" | "cost_price";
 type ServiceTypeOption = {
@@ -524,6 +526,16 @@ function isManagerRole(role?: string | null): boolean {
 
 function isLeaderRole(role?: string | null): boolean {
   return cleanString(role).toLowerCase() === "lider";
+}
+
+function isSellerRole(role?: string | null): boolean {
+  return cleanString(role).toLowerCase() === "vendedor";
+}
+
+function normalizeQuoteVisibilityMode(value: unknown): QuoteVisibilityMode {
+  return value === "all" || value === "team" || value === "own"
+    ? value
+    : "own";
 }
 
 function canOverrideQuoteMetaByRole(role?: string | null): boolean {
@@ -1012,6 +1024,8 @@ export default function QuotesPage() {
   const [expandedQuoteId, setExpandedQuoteId] = useState<number | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [listScope, setListScope] = useState<QuoteListScope>("mine");
+  const [visibilityMode, setVisibilityMode] =
+    useState<QuoteVisibilityMode>("own");
   const [ownerFilter, setOwnerFilter] = useState<string>("all");
   const [statusScope, setStatusScope] = useState<QuoteStatusScope>("active");
   const [createdFrom, setCreatedFrom] = useState("");
@@ -1077,14 +1091,20 @@ export default function QuotesPage() {
     () => canOverrideQuoteMetaByRole(profile?.role),
     [profile],
   );
-  const canSeeTeamQuotes = useMemo(
-    () => isLeaderRole(profile?.role),
-    [profile],
-  );
-  const canSeeAgencyQuotes = useMemo(
-    () => isManagerRole(profile?.role),
-    [profile],
-  );
+  const canSeeTeamQuotes = useMemo(() => {
+    if (isManagerRole(profile?.role)) return true;
+    if (isLeaderRole(profile?.role) || isSellerRole(profile?.role)) {
+      return visibilityMode === "team";
+    }
+    return false;
+  }, [profile?.role, visibilityMode]);
+  const canSeeAgencyQuotes = useMemo(() => {
+    if (isManagerRole(profile?.role)) return true;
+    if (isLeaderRole(profile?.role) || isSellerRole(profile?.role)) {
+      return visibilityMode === "all";
+    }
+    return false;
+  }, [profile?.role, visibilityMode]);
   const showsAgencyCounter = listScope === "team" || listScope === "agency";
   const canAssignOwner = useMemo(
     () => isManagerRole(profile?.role) || isLeaderRole(profile?.role),
@@ -1346,6 +1366,9 @@ export default function QuotesPage() {
         if (cfgRes.ok) {
           const cfg = (await cfgRes.json()) as QuoteConfigDTO | null;
           if (alive) {
+            setVisibilityMode(
+              normalizeQuoteVisibilityMode(cfg?.visibility_mode),
+            );
             setRequiredFields(
               normalizeQuoteRequiredFields(cfg?.required_fields),
             );
@@ -1504,18 +1527,16 @@ export default function QuotesPage() {
   }, [token]);
 
   useEffect(() => {
-    if (!profile) return;
-    if (isManagerRole(profile.role)) return;
-    if (isLeaderRole(profile.role)) {
-      if (listScope === "agency") {
-        setListScope("team");
-      }
+    const allowedScopes: QuoteListScope[] = ["mine"];
+    if (canSeeTeamQuotes) allowedScopes.push("team");
+    if (canSeeAgencyQuotes) allowedScopes.push("agency");
+    if (allowedScopes.includes(listScope)) return;
+    if (canSeeTeamQuotes) {
+      setListScope("team");
       return;
     }
-    if (listScope !== "mine") {
-      setListScope("mine");
-    }
-  }, [listScope, profile]);
+    setListScope("mine");
+  }, [canSeeAgencyQuotes, canSeeTeamQuotes, listScope]);
 
   useEffect(() => {
     setOwnerFilter("all");

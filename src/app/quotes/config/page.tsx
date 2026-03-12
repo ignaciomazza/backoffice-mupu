@@ -24,10 +24,13 @@ type Profile = {
 };
 
 type QuoteConfigDTO = {
+  visibility_mode?: unknown;
   required_fields?: unknown;
   hidden_fields?: unknown;
   custom_fields?: unknown;
 };
+
+type QuoteVisibilityMode = "all" | "team" | "own";
 
 type NewFieldState = {
   label: string;
@@ -74,7 +77,33 @@ const STACK_OPTIONS: Array<{
   {
     key: "permisos",
     label: "Permisos",
-    desc: "Quién puede editar y cómo aplica el alcance por rol.",
+    desc: "Definí alcance de visibilidad para el listado de cotizaciones.",
+  },
+];
+
+const VISIBILITY_OPTIONS: Array<{
+  key: QuoteVisibilityMode;
+  label: string;
+  desc: string;
+  hint: string;
+}> = [
+  {
+    key: "all",
+    label: "Todos",
+    desc: "Todos los vendedores y líderes ven cotizaciones de toda la agencia.",
+    hint: "Ideal para seguimiento comercial compartido.",
+  },
+  {
+    key: "team",
+    label: "Por equipo",
+    desc: "Cada usuario ve cotizaciones de su equipo. Si no tiene equipo, solo propias.",
+    hint: "Recomendado cuando trabajan por células o equipos.",
+  },
+  {
+    key: "own",
+    label: "Solo propias",
+    desc: "Cada usuario ve únicamente sus cotizaciones.",
+    hint: "Útil si querés máxima separación entre vendedores.",
   },
 ];
 
@@ -120,6 +149,12 @@ function canEditByRole(role?: string | null): boolean {
   ].includes(
     normalizeRole(role),
   );
+}
+
+function normalizeQuoteVisibilityMode(value: unknown): QuoteVisibilityMode {
+  return value === "all" || value === "team" || value === "own"
+    ? value
+    : "own";
 }
 
 function slugifyKey(input: string): string {
@@ -193,6 +228,7 @@ export default function QuotesConfigPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [visibilityMode, setVisibilityMode] = useState<QuoteVisibilityMode>("own");
   const [requiredFields, setRequiredFields] = useState<string[]>([]);
   const [hiddenFields, setHiddenFields] = useState<string[]>([]);
   const [customFields, setCustomFields] = useState<QuoteCustomField[]>([]);
@@ -208,6 +244,12 @@ export default function QuotesConfigPage() {
       `${field.label} ${field.key}`.toLowerCase().includes(query),
     );
   }, [customFields, customSearch]);
+  const selectedVisibilityOption = useMemo(
+    () =>
+      VISIBILITY_OPTIONS.find((option) => option.key === visibilityMode) ??
+      VISIBILITY_OPTIONS[2],
+    [visibilityMode],
+  );
   const stackStatus = useMemo<Record<ConfigStack, string>>(
     () => ({
       diseno_pdf: "Listo",
@@ -219,9 +261,14 @@ export default function QuotesConfigPage() {
         hiddenFields.length > 0 ? `${hiddenFields.length} activos` : "Sin definir",
       personalizados:
         customFields.length > 0 ? `${customFields.length} creados` : "Sin campos",
-      permisos: canEdit ? "Editable" : "Solo lectura",
+      permisos: selectedVisibilityOption.label,
     }),
-    [requiredFields.length, hiddenFields.length, customFields.length, canEdit],
+    [
+      requiredFields.length,
+      hiddenFields.length,
+      customFields.length,
+      selectedVisibilityOption.label,
+    ],
   );
 
   useEffect(() => {
@@ -241,6 +288,7 @@ export default function QuotesConfigPage() {
 
         if (cfgRes.ok && alive) {
           const cfg = (await cfgRes.json()) as QuoteConfigDTO | null;
+          setVisibilityMode(normalizeQuoteVisibilityMode(cfg?.visibility_mode));
           setRequiredFields(normalizeQuoteRequiredFields(cfg?.required_fields));
           setHiddenFields(normalizeQuoteHiddenFields(cfg?.hidden_fields));
           setCustomFields(normalizeQuoteCustomFields(cfg?.custom_fields));
@@ -342,6 +390,7 @@ export default function QuotesConfigPage() {
         {
           method: "PUT",
           body: JSON.stringify({
+            visibility_mode: visibilityMode,
             required_fields: requiredFields,
             hidden_fields: hiddenFields,
             custom_fields: customFields,
@@ -740,12 +789,58 @@ export default function QuotesConfigPage() {
         )}
 
         {activeStack === "permisos" && (
-          <div className={`${GLASS} p-4 text-sm text-sky-900 dark:text-sky-100`}>
-            <p className="font-medium">Permisos de cotizaciones</p>
-            <p className="mt-1 opacity-80">
-              Se aplican los mismos criterios de alcance que en reservas: vendedor
-              (propias), líder (equipo) y gerencia o administración (agencia).
+          <div className={`${GLASS} p-4`}>
+            <h2 className="mb-1 text-lg font-semibold text-sky-950 dark:text-sky-50">
+              Visibilidad de cotizaciones
+            </h2>
+            <p className="mb-3 text-sm text-sky-900/75 dark:text-sky-100/70">
+              Definí quién ve qué cotizaciones. Gerencia, administración y desarrollo
+              mantienen acceso total por rol.
             </p>
+
+            <div className="grid gap-2 md:grid-cols-3">
+              {VISIBILITY_OPTIONS.map((option) => {
+                const active = visibilityMode === option.key;
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => setVisibilityMode(option.key)}
+                    disabled={!canEdit}
+                    className={`rounded-2xl border bg-white/10 p-4 text-left transition ${
+                      active
+                        ? "border-sky-400/70 ring-1 ring-sky-400/50"
+                        : "border-white/20 hover:bg-white/20"
+                    } ${!canEdit ? "cursor-not-allowed opacity-60" : ""}`}
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold">{option.label}</span>
+                      <span
+                        className={`inline-flex size-5 items-center justify-center rounded-full border ${
+                          active
+                            ? "border-sky-500 bg-sky-500 text-white"
+                            : "border-sky-200 bg-sky-100 text-transparent dark:border-white/25 dark:bg-white/10"
+                        }`}
+                        aria-hidden="true"
+                      >
+                        •
+                      </span>
+                    </div>
+                    <p className="text-sm text-sky-950/80 dark:text-white/80">
+                      {option.desc}
+                    </p>
+                    <p className="mt-2 text-xs text-sky-950/65 dark:text-white/65">
+                      {option.hint}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-3 rounded-2xl border border-white/20 bg-white/10 px-3 py-2 text-sky-900 dark:text-sky-100">
+              <p className="text-sm font-medium">{selectedVisibilityOption.label}</p>
+              <p className="text-xs opacity-80">{selectedVisibilityOption.desc}</p>
+              <p className="text-xs opacity-70">{selectedVisibilityOption.hint}</p>
+            </div>
           </div>
         )}
       </section>

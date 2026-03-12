@@ -1,0 +1,2 @@
+ALTER TABLE "QuoteConfig"
+ADD COLUMN IF NOT EXISTS "visibility_mode" TEXT NOT NULL DEFAULT 'own';
