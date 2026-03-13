@@ -594,6 +594,10 @@ function isCustomValueMissing(
     const n = toNumber(value);
     return n == null;
   }
+  if (field.type === "multiselect") {
+    if (!Array.isArray(value)) return true;
+    return value.filter((item) => cleanString(item).length > 0).length === 0;
+  }
   if (field.type === "select") return cleanString(value) === "";
   return cleanString(value) === "";
 }
@@ -3324,6 +3328,15 @@ export default function QuotesPage() {
                     <div className="grid gap-3 md:grid-cols-2">
                       {customFields.map((field) => {
                         const val = form.custom_values[field.key];
+                        const selectedMulti = Array.isArray(val)
+                          ? Array.from(
+                              new Set(
+                                val
+                                  .map((item) => cleanString(item))
+                                  .filter((item) => item.length > 0),
+                              ),
+                            )
+                          : [];
                         const commonProps = {
                           className: INPUT,
                           placeholder: field.label,
@@ -3382,6 +3395,79 @@ export default function QuotesPage() {
                                   </option>
                                 ))}
                               </select>
+                            </div>
+                          );
+                        }
+
+                        if (field.type === "multiselect") {
+                          const options = field.options || [];
+                          return (
+                            <div key={field.key}>
+                              <label className="mb-1 block text-xs opacity-75">
+                                {field.label}
+                              </label>
+                              {options.length === 0 ? (
+                                <div className="rounded-2xl border border-sky-300/35 bg-white/45 px-3 py-2 text-xs opacity-75 dark:border-sky-200/25 dark:bg-sky-950/20">
+                                  Sin opciones configuradas.
+                                </div>
+                              ) : (
+                                <div className="space-y-1 rounded-2xl border border-sky-300/35 bg-white/45 px-3 py-2 dark:border-sky-200/25 dark:bg-sky-950/20">
+                                  {options.map((opt) => {
+                                    const checked = selectedMulti.includes(opt);
+                                    return (
+                                      <label
+                                        key={opt}
+                                        className="flex items-center gap-2 text-sm"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          className="size-4 rounded border-sky-300 text-sky-600 focus:ring-sky-400/40"
+                                          checked={checked}
+                                          onChange={(e) => {
+                                            setForm((prev) => {
+                                              const current = Array.isArray(
+                                                prev.custom_values[field.key],
+                                              )
+                                                ? Array.from(
+                                                    new Set(
+                                                      (
+                                                        prev.custom_values[
+                                                          field.key
+                                                        ] as unknown[]
+                                                      )
+                                                        .map((item) =>
+                                                          cleanString(item),
+                                                        )
+                                                        .filter(
+                                                          (item) =>
+                                                            item.length > 0,
+                                                        ),
+                                                    ),
+                                                  )
+                                                : [];
+                                              const next = e.target.checked
+                                                ? Array.from(
+                                                    new Set([...current, opt]),
+                                                  )
+                                                : current.filter(
+                                                    (item) => item !== opt,
+                                                  );
+                                              return {
+                                                ...prev,
+                                                custom_values: {
+                                                  ...prev.custom_values,
+                                                  [field.key]: next,
+                                                },
+                                              };
+                                            });
+                                          }}
+                                        />
+                                        <span>{opt}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
                           );
                         }

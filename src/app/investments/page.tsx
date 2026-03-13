@@ -323,6 +323,32 @@ function useDebounced<T>(value: T, delay = 350) {
 
 const todayISO = () => todayDateKeyInBuenosAires();
 
+function hasBookingAssociation(item: Investment): boolean {
+  if (typeof item.booking_id === "number" && item.booking_id > 0) return true;
+  if (
+    item.booking &&
+    typeof item.booking.id_booking === "number" &&
+    item.booking.id_booking > 0
+  ) {
+    return true;
+  }
+  if (
+    Array.isArray(item.allocations) &&
+    item.allocations.some(
+      (alloc) => typeof alloc.booking_id === "number" && alloc.booking_id > 0,
+    )
+  ) {
+    return true;
+  }
+  if (
+    Array.isArray(item.serviceIds) &&
+    item.serviceIds.some((serviceId) => Number(serviceId) > 0)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /* ==== Componente ==== */
 export default function Page() {
   const { token } = useAuth() as { token?: string | null };
@@ -390,6 +416,9 @@ export default function Page() {
   const [operadorMode, setOperadorMode] = useState<"all" | "only" | "others">(
     operatorOnly ? "only" : "others",
   );
+  const [associationFilter, setAssociationFilter] = useState<
+    "all" | "linked" | "unlinked"
+  >("all");
 
   const planRestrictOperatorOnly = hasPlan && planKey === "basico";
 
@@ -2717,7 +2746,7 @@ export default function Page() {
   }, []);
 
   /* ====== Filtro local y resúmenes ====== */
-  const filteredItems = useMemo(() => {
+  const baseFilteredItems = useMemo(() => {
     return items.filter((it) => {
       const isOp = isOperatorCategory(it.category);
       if (operadorMode === "only" && !isOp) return false;
@@ -2731,6 +2760,27 @@ export default function Page() {
       return true;
     });
   }, [items, operadorMode, operatorFilter, isOperatorCategory]);
+
+  const associationCounters = useMemo(() => {
+    const linked = baseFilteredItems.filter((item) =>
+      hasBookingAssociation(item),
+    ).length;
+    const total = baseFilteredItems.length;
+    return {
+      total,
+      linked,
+      unlinked: total - linked,
+    };
+  }, [baseFilteredItems]);
+
+  const filteredItems = useMemo(() => {
+    return baseFilteredItems.filter((item) => {
+      const linked = hasBookingAssociation(item);
+      if (associationFilter === "linked" && !linked) return false;
+      if (associationFilter === "unlinked" && linked) return false;
+      return true;
+    });
+  }, [baseFilteredItems, associationFilter]);
 
   const totalsByCurrencyAll = useMemo(() => {
     return items.reduce<Record<string, number>>((acc, it) => {
@@ -2757,7 +2807,7 @@ export default function Page() {
       op,
       others,
       total: listCounts.total ?? items.length,
-      filtered: listCounts.filtered ?? filteredItems.length,
+      filtered: filteredItems.length,
     };
   }, [items, filteredItems, isOperatorCategory, listCounts]);
 
@@ -2801,6 +2851,7 @@ export default function Page() {
     setAccountFilter("");
     setOperatorFilter(0);
     setOperadorMode(operatorOnly ? "only" : "others");
+    setAssociationFilter("all");
   };
 
   useEffect(() => {
@@ -2819,6 +2870,12 @@ export default function Page() {
       };
     });
   }, [operatorOnly, operatorCategory, categoryOptions, isOperatorCategory]);
+
+  useEffect(() => {
+    if (!operatorOnly) {
+      setAssociationFilter("all");
+    }
+  }, [operatorOnly]);
 
   useEffect(() => {
     if (operatorOnly) return;
@@ -2953,6 +3010,7 @@ export default function Page() {
           }
           showOperatorFilter={operatorOnly}
           showOperatorMode={false}
+          showAssociationFilter={operatorOnly}
           category={category}
           setCategory={setCategory}
           currency={currency}
@@ -2970,6 +3028,9 @@ export default function Page() {
           operators={operators}
           operadorMode={operadorMode}
           setOperadorMode={setOperadorMode}
+          associationFilter={associationFilter}
+          setAssociationFilter={setAssociationFilter}
+          associationCounters={associationCounters}
           counters={counters}
           resetFilters={resetFilters}
           viewMode={viewMode}

@@ -3,6 +3,7 @@ export type QuoteCustomFieldType =
   | "number"
   | "date"
   | "select"
+  | "multiselect"
   | "boolean"
   | "textarea";
 
@@ -36,6 +37,7 @@ const TYPE_SET = new Set<QuoteCustomFieldType>([
   "number",
   "date",
   "select",
+  "multiselect",
   "boolean",
   "textarea",
 ]);
@@ -93,7 +95,7 @@ export function normalizeQuoteCustomFields(input: unknown): QuoteCustomField[] {
     if (typeof rec.help === "string" && rec.help.trim()) {
       field.help = rec.help.trim().slice(0, 200);
     }
-    if (type === "select" && Array.isArray(rec.options)) {
+    if ((type === "select" || type === "multiselect") && Array.isArray(rec.options)) {
       const options = rec.options
         .map((opt) => (typeof opt === "string" ? opt.trim() : ""))
         .filter((opt) => opt.length > 0)

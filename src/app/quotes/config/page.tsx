@@ -112,6 +112,7 @@ const FIELD_TYPE_LABELS: Record<QuoteCustomFieldType, string> = {
   number: "Número",
   date: "Fecha",
   select: "Lista desplegable",
+  multiselect: "Selección múltiple",
   boolean: "Sí / No",
   textarea: "Texto largo",
 };
@@ -179,6 +180,10 @@ function buildUniqueKey(label: string, existingKeys: string[]): string {
     suffix += 1;
   }
   return `${base.slice(0, 35)}_${Date.now().toString().slice(-4)}`;
+}
+
+function requiresChoiceOptions(type: QuoteCustomFieldType): boolean {
+  return type === "select" || type === "multiselect";
 }
 
 const defaultNewField = (): NewFieldState => ({
@@ -333,7 +338,7 @@ export default function QuotesConfigPage() {
       toast.error("Definí al menos el nombre del campo.");
       return;
     }
-    if (newField.type === "select" && newField.options.length === 0) {
+    if (requiresChoiceOptions(newField.type) && newField.options.length === 0) {
       toast.error("Agregá al menos una opción para este campo de lista.");
       return;
     }
@@ -346,7 +351,7 @@ export default function QuotesConfigPage() {
       required: newField.required,
       placeholder: newField.placeholder.trim() || undefined,
       help: newField.help.trim() || undefined,
-      options: newField.type === "select" ? newField.options : undefined,
+      options: requiresChoiceOptions(newField.type) ? newField.options : undefined,
     };
 
     setCustomFields((prev) => [...prev, field]);
@@ -379,6 +384,14 @@ export default function QuotesConfigPage() {
 
   const removeCustomField = (key: string) => {
     setCustomFields((prev) => prev.filter((f) => f.key !== key));
+  };
+
+  const toggleCustomFieldRequired = (key: string) => {
+    setCustomFields((prev) =>
+      prev.map((field) =>
+        field.key === key ? { ...field, required: !field.required } : field,
+      ),
+    );
   };
 
   const saveConfig = async () => {
@@ -644,8 +657,11 @@ export default function QuotesConfigPage() {
                   setNewField((prev) => ({
                     ...prev,
                     type: e.target.value as QuoteCustomFieldType,
-                    options:
-                      e.target.value === "select" ? prev.options : [],
+                    options: requiresChoiceOptions(
+                      e.target.value as QuoteCustomFieldType,
+                    )
+                      ? prev.options
+                      : [],
                     optionDraft: "",
                   }))
                 }
@@ -655,6 +671,7 @@ export default function QuotesConfigPage() {
                 <option value="number">Número</option>
                 <option value="date">Fecha</option>
                 <option value="select">Lista desplegable</option>
+                <option value="multiselect">Selección múltiple (checkbox)</option>
                 <option value="boolean">Sí / No</option>
                 <option value="textarea">Texto largo</option>
               </select>
@@ -676,7 +693,7 @@ export default function QuotesConfigPage() {
                 }
                 disabled={!canEdit}
               />
-              {newField.type === "select" && (
+              {requiresChoiceOptions(newField.type) && (
                 <div className="space-y-2 md:col-span-3">
                   <div className="flex gap-2">
                     <input
@@ -773,14 +790,24 @@ export default function QuotesConfigPage() {
                         {field.options?.length ? ` · ${field.options.join(", ")}` : ""}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      className={DANGER_BTN}
-                      onClick={() => removeCustomField(field.key)}
-                      disabled={!canEdit}
-                    >
-                      Eliminar
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className={SUBTLE_BTN}
+                        onClick={() => toggleCustomFieldRequired(field.key)}
+                        disabled={!canEdit}
+                      >
+                        {field.required ? "Obligatorio" : "Opcional"}
+                      </button>
+                      <button
+                        type="button"
+                        className={DANGER_BTN}
+                        onClick={() => removeCustomField(field.key)}
+                        disabled={!canEdit}
+                      >
+                        Eliminar
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

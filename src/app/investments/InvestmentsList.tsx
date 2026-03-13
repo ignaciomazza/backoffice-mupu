@@ -36,6 +36,7 @@ type InvestmentsListProps = {
   showCategoryFilter?: boolean;
   showOperatorFilter?: boolean;
   showOperatorMode?: boolean;
+  showAssociationFilter?: boolean;
   category: string;
   setCategory: Dispatch<SetStateAction<string>>;
   currency: string;
@@ -53,6 +54,11 @@ type InvestmentsListProps = {
   operators: Operator[];
   operadorMode: "all" | "only" | "others";
   setOperadorMode: Dispatch<SetStateAction<"all" | "only" | "others">>;
+  associationFilter: "all" | "linked" | "unlinked";
+  setAssociationFilter: Dispatch<
+    SetStateAction<"all" | "linked" | "unlinked">
+  >;
+  associationCounters: { total: number; linked: number; unlinked: number };
   counters: Counters;
   resetFilters: () => void;
   viewMode: "cards" | "table" | "monthly";
@@ -97,6 +103,61 @@ const formatMoney = (amount: number, currency: string) => {
   } catch {
     return `${value.toFixed(2)} ${currency}`;
   }
+};
+
+const toFiniteNumber = (value: unknown): number | null => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+const hasCurrencyValue = (
+  amount: unknown,
+  currency: string | null | undefined,
+): amount is number | string => {
+  if (currency == null || String(currency).trim() === "") return false;
+  return toFiniteNumber(amount) !== null;
+};
+
+type ConversionDisplay = {
+  hasConversion: boolean;
+  displayAmountLabel: string;
+  registeredAmountLabel: string;
+  showRegisteredAmount: boolean;
+  conversionLabel: string;
+};
+
+const buildConversionDisplay = (item: Investment): ConversionDisplay => {
+  const itemCurrency = normalizeCurrency(item.currency, "ARS");
+  const amount = toFiniteNumber(item.amount) ?? 0;
+  const hasBase = hasCurrencyValue(item.base_amount, item.base_currency);
+  const hasCounter = hasCurrencyValue(item.counter_amount, item.counter_currency);
+
+  const baseAmount = hasBase ? (toFiniteNumber(item.base_amount) ?? amount) : amount;
+  const baseCurrency = normalizeCurrency(item.base_currency, itemCurrency);
+  const counterAmount = hasCounter
+    ? (toFiniteNumber(item.counter_amount) ?? amount)
+    : amount;
+  const counterCurrency = normalizeCurrency(item.counter_currency, itemCurrency);
+
+  const displayAmountLabel = formatMoney(baseAmount, baseCurrency);
+  const registeredAmountLabel = formatMoney(amount, itemCurrency);
+  const showRegisteredAmount =
+    hasBase && (baseCurrency !== itemCurrency || Math.abs(baseAmount - amount) > 0.009);
+  const hasConversion = hasBase || hasCounter;
+  const conversionLabel = hasConversion
+    ? `${formatMoney(baseAmount, baseCurrency)} → ${formatMoney(
+        counterAmount,
+        counterCurrency,
+      )}`
+    : "—";
+
+  return {
+    hasConversion,
+    displayAmountLabel,
+    registeredAmountLabel,
+    showRegisteredAmount,
+    conversionLabel,
+  };
 };
 
 const formatFxRate = (fxRate: number) => {
@@ -283,6 +344,11 @@ function InvestmentCard({
       ? normalizedAllocations.length
       : fallbackServiceIds.length;
   const hasServiceBreakdown = showServiceBreakdown && serviceCount > 0;
+  const conversion = buildConversionDisplay(item);
+  const hasLinkedBooking =
+    (typeof item.booking_id === "number" && item.booking_id > 0) ||
+    normalizedAllocations.some((alloc) => (alloc.booking_id || 0) > 0) ||
+    fallbackServiceIds.length > 0;
   return (
     <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
       <div className="flex items-center justify-between gap-3">
@@ -329,12 +395,19 @@ function InvestmentCard({
       <div className="mt-1 text-lg opacity-90">{item.description}</div>
       <div className="mt-2 flex flex-wrap items-center gap-4 text-sm">
         <span>
-          <b>Monto:</b>{" "}
-          {new Intl.NumberFormat("es-AR", {
-            style: "currency",
-            currency: item.currency,
-          }).format(item.amount)}
+          <b>{conversion.hasConversion ? "Monto aplicado:" : "Monto:"}</b>{" "}
+          {conversion.displayAmountLabel}
         </span>
+        {conversion.showRegisteredAmount && (
+          <span>
+            <b>Monto del pago:</b> {conversion.registeredAmountLabel}
+          </span>
+        )}
+        {conversion.hasConversion && (
+          <span>
+            <b>Conversión:</b> {conversion.conversionLabel}
+          </span>
+        )}
         <span>
           <b>Creado:</b> {formatDate(item.created_at)}
         </span>
@@ -351,24 +424,6 @@ function InvestmentCard({
         {item.account && (
           <span>
             <b>Cuenta:</b> {item.account}
-          </span>
-        )}
-        {item.base_amount && item.base_currency && (
-          <span>
-            <b>Valor:</b>{" "}
-            {new Intl.NumberFormat("es-AR", {
-              style: "currency",
-              currency: item.base_currency,
-            }).format(item.base_amount)}
-          </span>
-        )}
-        {item.counter_amount && item.counter_currency && (
-          <span>
-            <b>Contravalor:</b>{" "}
-            {new Intl.NumberFormat("es-AR", {
-              style: "currency",
-              currency: item.counter_currency,
-            }).format(item.counter_amount)}
           </span>
         )}
         {item.operator && (
@@ -392,6 +447,9 @@ function InvestmentCard({
             {item.createdBy.last_name}
           </span>
         )}
+        <span>
+          <b>Asociación:</b> {hasLinkedBooking ? "Asociado" : "Sin reserva"}
+        </span>
         {item.booking_id && (
           <span className="flex w-fit items-center gap-2">
             <b>Reserva Nº. </b> {bookingNumber}
@@ -416,6 +474,11 @@ function InvestmentCard({
                 />
               </svg>
             </Link>
+          </span>
+        )}
+        {!item.booking_id && hasLinkedBooking && (
+          <span>
+            <b>Reserva:</b> Asociado por servicios
           </span>
         )}
       </div>
@@ -569,6 +632,7 @@ export default function InvestmentsList({
   showCategoryFilter = true,
   showOperatorFilter = true,
   showOperatorMode = true,
+  showAssociationFilter = false,
   category,
   setCategory,
   currency,
@@ -586,6 +650,9 @@ export default function InvestmentsList({
   operators,
   operadorMode,
   setOperadorMode,
+  associationFilter,
+  setAssociationFilter,
+  associationCounters,
   counters,
   resetFilters,
   viewMode,
@@ -772,6 +839,53 @@ export default function InvestmentsList({
             </div>
           )}
 
+          {showAssociationFilter && (
+            <div className="flex items-center rounded-2xl border border-white/10 bg-white/60 shadow-sm shadow-sky-950/10 backdrop-blur dark:bg-white/10">
+              {[
+                { key: "all", label: "Todos", badge: associationCounters.total },
+                {
+                  key: "linked",
+                  label: "Asociados",
+                  badge: associationCounters.linked,
+                },
+                {
+                  key: "unlinked",
+                  label: "Sin reserva",
+                  badge: associationCounters.unlinked,
+                },
+              ].map((opt) => {
+                const active = associationFilter === (opt.key as typeof associationFilter);
+                const badgeTone =
+                  opt.key === "linked"
+                    ? "border-emerald-200/70 bg-emerald-100/70 text-emerald-900 dark:border-emerald-700/50 dark:bg-emerald-900/30 dark:text-emerald-100"
+                    : opt.key === "unlinked"
+                      ? "border-rose-200/70 bg-rose-100/70 text-rose-900 dark:border-rose-700/50 dark:bg-rose-900/30 dark:text-rose-100"
+                      : "border-amber-200/70 bg-amber-100/70 text-amber-900 dark:border-amber-700/50 dark:bg-amber-900/30 dark:text-amber-100";
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() =>
+                      setAssociationFilter(opt.key as "all" | "linked" | "unlinked")
+                    }
+                    className={[
+                      "flex items-center gap-2 rounded-2xl px-4 py-2 text-sm transition-colors",
+                      active
+                        ? "bg-sky-500/15 text-sky-700 dark:text-sky-200"
+                        : "text-sky-950/80 hover:bg-white/60 dark:text-white/80",
+                    ].join(" ")}
+                    title={`Mostrar ${opt.label.toLowerCase()}`}
+                  >
+                    <span>{opt.label}</span>
+                    <span className={`rounded-full border px-2 text-xs ${badgeTone}`}>
+                      {opt.badge}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           <button
             type="button"
             onClick={resetFilters}
@@ -900,10 +1014,13 @@ export default function InvestmentsList({
                       typeof canDownloadOperatorPaymentPdf === "function"
                         ? canDownloadOperatorPaymentPdf(it)
                         : !!showOperatorPaymentPdf;
-                    const amountLabel = new Intl.NumberFormat("es-AR", {
-                      style: "currency",
-                      currency: it.currency,
-                    }).format(it.amount);
+                    const conversion = buildConversionDisplay(it);
+                    const associated = Boolean(
+                      (typeof it.booking_id === "number" && it.booking_id > 0) ||
+                        (Array.isArray(it.allocations) &&
+                          it.allocations.some((alloc) => (alloc.booking_id || 0) > 0)) ||
+                        (Array.isArray(it.serviceIds) && it.serviceIds.length > 0),
+                    );
                     return (
                       <tr
                         key={it.id_investment}
@@ -927,7 +1044,17 @@ export default function InvestmentsList({
                         </td>
                         <td className="px-4 py-3">{it.description}</td>
                         <td className="px-4 py-3 font-semibold">
-                          {amountLabel}
+                          <div>{conversion.displayAmountLabel}</div>
+                          {conversion.showRegisteredAmount && (
+                            <div className="text-[11px] font-normal opacity-70">
+                              Pago: {conversion.registeredAmountLabel}
+                            </div>
+                          )}
+                          {conversion.hasConversion && (
+                            <div className="text-[11px] font-normal opacity-70">
+                              {conversion.conversionLabel}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-xs">
                           {it.payment_method || "-"}
@@ -941,8 +1068,11 @@ export default function InvestmentsList({
                             : it.user
                               ? `Usuario: ${it.user.first_name} ${it.user.last_name}`
                               : it.counterparty_name
-                                ? `A quién se le paga: ${it.counterparty_name}`
-                                : "-"}
+                              ? `A quién se le paga: ${it.counterparty_name}`
+                              : "-"}
+                          <div className="mt-1 opacity-70">
+                            {associated ? "Asociado" : "Sin reserva"}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-2">
@@ -998,6 +1128,7 @@ export default function InvestmentsList({
                         typeof canDownloadOperatorPaymentPdf === "function"
                           ? canDownloadOperatorPaymentPdf(it)
                           : !!showOperatorPaymentPdf;
+                      const conversion = buildConversionDisplay(it);
                       return (
                         <div
                           key={it.id_investment}
@@ -1026,11 +1157,20 @@ export default function InvestmentsList({
                             {showPdf && (
                               <PaymentPdfButton token={token} item={it} />
                             )}
-                            <div className="text-sm font-semibold">
-                              {new Intl.NumberFormat("es-AR", {
-                                style: "currency",
-                                currency: it.currency,
-                              }).format(it.amount)}
+                            <div className="text-right">
+                              <div className="text-sm font-semibold">
+                                {conversion.displayAmountLabel}
+                              </div>
+                              {conversion.showRegisteredAmount && (
+                                <div className="text-[11px] opacity-70">
+                                  Pago: {conversion.registeredAmountLabel}
+                                </div>
+                              )}
+                              {conversion.hasConversion && (
+                                <div className="text-[11px] opacity-70">
+                                  {conversion.conversionLabel}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>

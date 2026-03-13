@@ -2067,7 +2067,22 @@ export default function ReceiptsPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3 font-semibold">
-                            {r._amountLabel}
+                            <div>{r._amountLabel}</div>
+                            {r._convLabel !== "—" && (
+                              <div className="text-[11px] font-normal opacity-70">
+                                {r._convLabel}
+                              </div>
+                            )}
+                            {(r._clientTotalLabel !== "—" || r._feeLabel !== "—") && (
+                              <div className="text-[11px] font-normal opacity-70">
+                                {r._clientTotalLabel !== "—" &&
+                                  `Pax: ${r._clientTotalLabel}`}
+                                {r._clientTotalLabel !== "—" &&
+                                  r._feeLabel !== "—" &&
+                                  " · "}
+                                {r._feeLabel !== "—" && `Costo: ${r._feeLabel}`}
+                              </div>
+                            )}
                           </td>
                           <td className="px-4 py-3">{methodLabel}</td>
                           <td className="px-4 py-3">
@@ -2167,9 +2182,16 @@ export default function ReceiptsPage() {
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
-                              <span className="text-sm font-semibold">
-                                {r._amountLabel}
-                              </span>
+                              <div className="text-right">
+                                <div className="text-sm font-semibold">
+                                  {r._amountLabel}
+                                </div>
+                                {r._convLabel !== "—" && (
+                                  <div className="text-[11px] opacity-70">
+                                    {r._convLabel}
+                                  </div>
+                                )}
+                              </div>
                               {renderReceiptActions(r, "compact")}
                             </div>
                           </div>
