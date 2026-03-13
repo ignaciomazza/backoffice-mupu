@@ -1145,8 +1145,8 @@ export default function ReceiptsPage() {
           vatOnCardInterest:
             Number.isFinite(cardVat) && cardVat > 0 ? cardVat : undefined,
           pending_amount:
-            Number.isFinite(pendingAmount) && pendingAmount > 0
-              ? pendingAmount
+            Number.isFinite(pendingAmount) && pendingAmount >= 0
+              ? Math.max(0, pendingAmount)
               : undefined,
           type: s?.type ?? undefined,
           destination: s?.destination ?? s?.destino ?? undefined,

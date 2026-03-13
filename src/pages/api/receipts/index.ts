@@ -492,7 +492,6 @@ function buildSelectedServiceSalesByCurrency(args: {
   selectedServiceIds: number[];
   services: ServiceDebtInput[];
   bookingSaleMode: boolean;
-  manualMode: boolean;
   bookingSaleTotals: Record<string, number>;
 }): Record<string, number> {
   const out: Record<string, number> = {};
@@ -531,12 +530,6 @@ function buildSelectedServiceSalesByCurrency(args: {
     if (!selectedSet.has(svc.id_service)) continue;
     const code = normalizeCurrency(svc.currency || "ARS");
     const sale = Math.max(0, toNum(svc.sale_price));
-
-    if (args.manualMode) {
-      add(code, sale);
-      continue;
-    }
-
     const splitInterest =
       toNum(svc.taxableCardInterest) + toNum(svc.vatOnCardInterest);
     const cardInterest = splitInterest > 0 ? splitInterest : toNum(svc.card_interest);
@@ -545,6 +538,68 @@ function buildSelectedServiceSalesByCurrency(args: {
   }
 
   return out;
+}
+
+function addUnallocatedReceiptPaidByCurrencyForSelection(args: {
+  target: Record<string, number>;
+  receipt: ReceiptDebtView;
+  selectedServiceIds: Set<number>;
+  allServiceIds: number[];
+  serviceCurrencyById: Map<number, string>;
+  serviceWeightById: Map<number, number>;
+}) {
+  const rawScopeIds = normalizeIdList(args.receipt.serviceIds);
+  const scopeIds = (rawScopeIds.length > 0 ? rawScopeIds : args.allServiceIds).filter(
+    (id) => args.serviceCurrencyById.has(id),
+  );
+  if (scopeIds.length === 0) return;
+
+  const selectedScopeIds = scopeIds.filter((id) => args.selectedServiceIds.has(id));
+  if (selectedScopeIds.length === 0) return;
+
+  const fullPaidByCurrency: Record<string, number> = {};
+  addReceiptToPaidByCurrency(fullPaidByCurrency, args.receipt);
+
+  const sumWeight = (ids: number[]) =>
+    ids.reduce((sum, id) => sum + Math.max(0, args.serviceWeightById.get(id) || 0), 0);
+
+  for (const [currencyRaw, amountRaw] of Object.entries(fullPaidByCurrency)) {
+    const currency = normalizeCurrency(currencyRaw || "ARS");
+    const amount = toNum(amountRaw);
+    if (!Number.isFinite(amount) || Math.abs(amount) <= DEBT_TOLERANCE) continue;
+
+    const scopeIdsForCurrency = scopeIds.filter(
+      (id) => args.serviceCurrencyById.get(id) === currency,
+    );
+    const selectedIdsForCurrency = selectedScopeIds.filter(
+      (id) => args.serviceCurrencyById.get(id) === currency,
+    );
+
+    let ratio = 0;
+    const totalWeightForCurrency = sumWeight(scopeIdsForCurrency);
+    const selectedWeightForCurrency = sumWeight(selectedIdsForCurrency);
+    if (
+      totalWeightForCurrency > DEBT_TOLERANCE &&
+      selectedWeightForCurrency > DEBT_TOLERANCE
+    ) {
+      ratio = selectedWeightForCurrency / totalWeightForCurrency;
+    } else if (scopeIdsForCurrency.length > 0 && selectedIdsForCurrency.length > 0) {
+      ratio = selectedIdsForCurrency.length / scopeIdsForCurrency.length;
+    } else {
+      const totalWeight = sumWeight(scopeIds);
+      const selectedWeight = sumWeight(selectedScopeIds);
+      if (totalWeight > DEBT_TOLERANCE && selectedWeight > DEBT_TOLERANCE) {
+        ratio = selectedWeight / totalWeight;
+      } else {
+        ratio = selectedScopeIds.length / scopeIds.length;
+      }
+    }
+
+    if (!Number.isFinite(ratio) || ratio <= 0) continue;
+    const proratedAmount = round2(amount * ratio);
+    if (Math.abs(proratedAmount) <= DEBT_TOLERANCE) continue;
+    args.target[currency] = round2((args.target[currency] || 0) + proratedAmount);
+  }
 }
 
 type ReceiptDebtView = {
@@ -1591,10 +1646,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         typeof booking.use_booking_sale_total_override === "boolean"
           ? booking.use_booking_sale_total_override
           : inheritedUseBookingSaleTotal;
-      const billingMode = String(calcConfig?.billing_breakdown_mode || "auto")
-        .trim()
-        .toLowerCase();
-      const manualMode = billingMode === "manual" || bookingSaleMode;
       const bookingSaleTotals = normalizeSaleTotals(booking.sale_totals);
 
       const services = await prisma.service.findMany({
@@ -1765,7 +1816,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         selectedServiceIds: resolvedServiceIds,
         services,
         bookingSaleMode,
-        manualMode,
         bookingSaleTotals,
       });
 
@@ -1773,6 +1823,27 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       const allocationScopeServiceIds = bookingSaleMode
         ? undefined
         : selectedServiceIdSet;
+      const allBookingServiceIds = services.map((service) => service.id_service);
+      const serviceCurrencyById = new Map(
+        services.map((service) => [
+          service.id_service,
+          normalizeCurrency(service.currency || "ARS"),
+        ]),
+      );
+      const serviceWeightById = new Map(
+        services.map((service) => {
+          const sale = Math.max(0, toNum(service.sale_price));
+          const splitInterest =
+            toNum(service.taxableCardInterest) + toNum(service.vatOnCardInterest);
+          const cardInterest =
+            splitInterest > 0 ? splitInterest : toNum(service.card_interest);
+          const total = Math.max(
+            0,
+            sale + (Number.isFinite(cardInterest) ? cardInterest : 0),
+          );
+          return [service.id_service, round2(total)];
+        }),
+      );
       const existingReceipts = await prisma.receipt.findMany({
         where: {
           bookingId_booking: bookingId,
@@ -1822,13 +1893,33 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
             )
           : [];
         const receiptServiceIds = normalizeIdList(receipt.serviceIds);
+        const hasAllocations = receiptAllocationIds.length > 0;
         const appliesToSelection =
           bookingSaleMode ||
-          (receiptAllocationIds.length > 0
+          (hasAllocations
             ? receiptAllocationIds.some((id) => selectedServiceIdSet.has(id))
             : receiptServiceIds.length === 0 ||
               receiptServiceIds.some((id) => selectedServiceIdSet.has(id)));
         if (!appliesToSelection) continue;
+
+        if (!bookingSaleMode && allocationScopeServiceIds) {
+          if (hasAllocations) {
+            addReceiptToPaidByCurrency(paidByCurrency, receipt, {
+              selectedServiceIds: allocationScopeServiceIds,
+            });
+          } else {
+            addUnallocatedReceiptPaidByCurrencyForSelection({
+              target: paidByCurrency,
+              receipt,
+              selectedServiceIds: allocationScopeServiceIds,
+              allServiceIds: allBookingServiceIds,
+              serviceCurrencyById,
+              serviceWeightById,
+            });
+          }
+          continue;
+        }
+
         addReceiptToPaidByCurrency(
           paidByCurrency,
           receipt,

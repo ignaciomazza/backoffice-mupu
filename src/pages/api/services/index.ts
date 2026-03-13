@@ -427,7 +427,7 @@ export default async function handler(
 
       const addPaid = (serviceId: number, amount: number) => {
         if (!Number.isFinite(serviceId) || serviceId <= 0) return;
-        if (!Number.isFinite(amount) || amount <= 0) return;
+        if (!Number.isFinite(amount) || Math.abs(amount) <= PENDING_TOLERANCE) return;
         paidByService.set(
           serviceId,
           round2((paidByService.get(serviceId) || 0) + amount),
@@ -436,7 +436,7 @@ export default async function handler(
 
       const distributeByWeight = (targetServiceIds: number[], total: number) => {
         if (!targetServiceIds.length) return;
-        if (!Number.isFinite(total) || total <= 0) return;
+        if (!Number.isFinite(total) || Math.abs(total) <= PENDING_TOLERANCE) return;
 
         const weights = targetServiceIds.map((sid) => {
           const service = serviceById.get(sid);
@@ -463,7 +463,7 @@ export default async function handler(
             totalWeight > 0 ? weights[idx] / totalWeight : 1 / targetServiceIds.length;
           const amount = isLast ? remaining : round2(total * ratio);
           if (!isLast) remaining = round2(remaining - amount);
-          addPaid(sid, Math.max(0, amount));
+          addPaid(sid, amount);
         });
       };
 
@@ -511,7 +511,8 @@ export default async function handler(
                 .filter((id) => Number.isFinite(id) && serviceById.has(id)),
             ),
           );
-          if (!scopedServiceIds.length) continue;
+          const effectiveScopedServiceIds =
+            scopedServiceIds.length > 0 ? scopedServiceIds : serviceIds;
 
           const amountCurrency = String(receipt.amount_currency || "")
             .trim()
@@ -519,19 +520,13 @@ export default async function handler(
           const baseCurrency = String(receipt.base_currency || "")
             .trim()
             .toUpperCase();
-          const amountValue = Math.max(toNullableNumber(receipt.amount) || 0, 0);
-          const feeValue = Math.max(
-            toNullableNumber(receipt.payment_fee_amount) || 0,
-            0,
-          );
-          const baseValue = Math.max(
-            toNullableNumber(receipt.base_amount) || 0,
-            0,
-          );
+          const amountValue = toNullableNumber(receipt.amount) || 0;
+          const feeValue = toNullableNumber(receipt.payment_fee_amount) || 0;
+          const baseValue = toNullableNumber(receipt.base_amount) || 0;
 
           let distributed = false;
-          if (baseCurrency && baseValue > 0) {
-            const baseServiceIds = scopedServiceIds.filter((serviceId) => {
+          if (baseCurrency && Math.abs(baseValue) > PENDING_TOLERANCE) {
+            const baseServiceIds = effectiveScopedServiceIds.filter((serviceId) => {
               const serviceCurrency = String(
                 serviceById.get(serviceId)?.currency || "",
               )
@@ -540,13 +535,16 @@ export default async function handler(
               return serviceCurrency === baseCurrency;
             });
             if (baseServiceIds.length > 0) {
-              distributeByWeight(baseServiceIds, baseValue);
+              const baseTotal =
+                baseValue +
+                (baseCurrency === amountCurrency ? feeValue : 0);
+              distributeByWeight(baseServiceIds, baseTotal);
               distributed = true;
             }
           }
 
           if (!distributed && amountCurrency) {
-            const amountServiceIds = scopedServiceIds.filter((serviceId) => {
+            const amountServiceIds = effectiveScopedServiceIds.filter((serviceId) => {
               const serviceCurrency = String(
                 serviceById.get(serviceId)?.currency || "",
               )

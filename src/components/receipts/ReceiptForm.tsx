@@ -293,6 +293,83 @@ const addReceiptToPaidByCurrency = (
   target[amountCurrency] = round2((target[amountCurrency] || 0) + credited);
 };
 
+const normalizeIdListLoose = (input: unknown): number[] => {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<number>();
+  const out: number[] = [];
+  for (const raw of input) {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    const id = Math.trunc(n);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+};
+
+const addUnallocatedReceiptPaidByCurrencyForSelection = (args: {
+  target: Record<string, number>;
+  receipt: ReceiptForDebt;
+  selectedServiceIds: Set<number>;
+  allServiceIds: number[];
+  serviceCurrencyById: Map<number, string>;
+  serviceWeightById: Map<number, number>;
+}) => {
+  const rawScopeIds = normalizeIdListLoose(args.receipt.serviceIds);
+  const scopeIds = (rawScopeIds.length > 0 ? rawScopeIds : args.allServiceIds).filter(
+    (id) => args.serviceCurrencyById.has(id),
+  );
+  if (!scopeIds.length) return;
+
+  const selectedScopeIds = scopeIds.filter((id) => args.selectedServiceIds.has(id));
+  if (!selectedScopeIds.length) return;
+
+  const fullPaidByCurrency: Record<string, number> = {};
+  addReceiptToPaidByCurrency(fullPaidByCurrency, args.receipt);
+
+  const sumWeight = (ids: number[]) =>
+    ids.reduce((sum, id) => sum + Math.max(0, args.serviceWeightById.get(id) || 0), 0);
+
+  for (const [currencyRaw, amountRaw] of Object.entries(fullPaidByCurrency)) {
+    const currency = normalizeCurrencyCodeLoose(currencyRaw || "ARS");
+    const amount = toNumberLoose(amountRaw);
+    if (!Number.isFinite(amount) || Math.abs(amount) <= DEBT_TOLERANCE) continue;
+
+    const scopeIdsForCurrency = scopeIds.filter(
+      (id) => args.serviceCurrencyById.get(id) === currency,
+    );
+    const selectedIdsForCurrency = selectedScopeIds.filter(
+      (id) => args.serviceCurrencyById.get(id) === currency,
+    );
+
+    let ratio = 0;
+    const totalWeightForCurrency = sumWeight(scopeIdsForCurrency);
+    const selectedWeightForCurrency = sumWeight(selectedIdsForCurrency);
+    if (
+      totalWeightForCurrency > DEBT_TOLERANCE &&
+      selectedWeightForCurrency > DEBT_TOLERANCE
+    ) {
+      ratio = selectedWeightForCurrency / totalWeightForCurrency;
+    } else if (scopeIdsForCurrency.length > 0 && selectedIdsForCurrency.length > 0) {
+      ratio = selectedIdsForCurrency.length / scopeIdsForCurrency.length;
+    } else {
+      const totalWeight = sumWeight(scopeIds);
+      const selectedWeight = sumWeight(selectedScopeIds);
+      if (totalWeight > DEBT_TOLERANCE && selectedWeight > DEBT_TOLERANCE) {
+        ratio = selectedWeight / totalWeight;
+      } else {
+        ratio = selectedScopeIds.length / scopeIds.length;
+      }
+    }
+
+    if (!Number.isFinite(ratio) || ratio <= 0) continue;
+    const proratedAmount = round2(amount * ratio);
+    if (Math.abs(proratedAmount) <= DEBT_TOLERANCE) continue;
+    args.target[currency] = round2((args.target[currency] || 0) + proratedAmount);
+  }
+};
+
 const calcPaymentLineFee = (line: {
   amount: string;
   fee_mode: "NONE" | ReceiptPaymentFeeMode;
@@ -1691,7 +1768,7 @@ export default function ReceiptForm({
   const [bookingContextLoaded, setBookingContextLoaded] = useState(false);
   const [inheritedUseBookingSaleTotal, setInheritedUseBookingSaleTotal] =
     useState(false);
-  const [billingBreakdownMode, setBillingBreakdownMode] = useState<
+  const [, setBillingBreakdownMode] = useState<
     "auto" | "manual"
   >("auto");
   const [calcConfigLoaded, setCalcConfigLoaded] = useState(false);
@@ -1842,7 +1919,6 @@ export default function ReceiptForm({
         ? bookingSaleOverride
         : inheritedUseBookingSaleTotal
       : false;
-  const manualCalcMode = billingBreakdownMode === "manual" || bookingSaleMode;
   const paymentAvailableForAllocationByCurrency = useMemo(() => {
     const out: Record<string, number> = {};
     addReceiptToPaidByCurrency(out, {
@@ -2009,10 +2085,6 @@ export default function ReceiptForm({
     return selectedServices.reduce<Record<string, number>>((acc, s) => {
       const cur = normalizeCurrencyCode(s.currency || "ARS");
       const sale = toNum(s.sale_price);
-      if (manualCalcMode) {
-        if (sale > 0) acc[cur] = (acc[cur] || 0) + sale;
-        return acc;
-      }
       const split = toNum(s.taxableCardInterest) + toNum(s.vatOnCardInterest);
       const interest = split > 0 ? split : toNum(s.card_interest);
       const total = sale + interest;
@@ -2024,28 +2096,76 @@ export default function ReceiptForm({
     bookingSaleTotals,
     services,
     selectedServices,
-    manualCalcMode,
     normalizeCurrencyCode,
     toNum,
   ]);
 
+  const serviceCurrencyById = useMemo(
+    () =>
+      new Map(
+        services.map((service) => [
+          service.id_service,
+          normalizeCurrencyCodeLoose(service.currency || "ARS"),
+        ]),
+      ),
+    [services],
+  );
+
+  const serviceWeightById = useMemo(
+    () =>
+      new Map(
+        services.map((service) => {
+          const sale = Math.max(0, toNumberLoose(service.sale_price));
+          const splitInterest =
+            toNumberLoose(service.taxableCardInterest) +
+            toNumberLoose(service.vatOnCardInterest);
+          const cardInterest =
+            splitInterest > 0
+              ? splitInterest
+              : toNumberLoose(service.card_interest);
+          return [service.id_service, round2(Math.max(0, sale + cardInterest))];
+        }),
+      ),
+    [services],
+  );
+
   const paidByCurrency = useMemo(() => {
-    const selectedServiceIdSet = bookingSaleMode
-      ? undefined
-      : new Set(serviceIdsForContext);
     return relevantReceipts.reduce<Record<string, number>>((acc, receipt) => {
-      addReceiptToPaidByCurrency(
-        acc,
+      if (bookingSaleMode) {
+        addReceiptToPaidByCurrency(acc, receipt);
+        return acc;
+      }
+
+      const selectedServiceIdSet = new Set(serviceIdsForContext);
+      const hasAllocations =
+        Array.isArray(receipt.service_allocations) &&
+        receipt.service_allocations.length > 0;
+
+      if (hasAllocations) {
+        addReceiptToPaidByCurrency(acc, receipt, {
+          selectedServiceIds: selectedServiceIdSet,
+        });
+        return acc;
+      }
+
+      addUnallocatedReceiptPaidByCurrencyForSelection({
+        target: acc,
         receipt,
-        selectedServiceIdSet
-          ? {
-              selectedServiceIds: selectedServiceIdSet,
-            }
-          : undefined,
-      );
+        selectedServiceIds: selectedServiceIdSet,
+        allServiceIds: allBookingServiceIds,
+        serviceCurrencyById,
+        serviceWeightById,
+      });
       return acc;
     }, {});
-  }, [relevantReceipts, serviceIdsForContext, bookingSaleMode]);
+  }, [
+    relevantReceipts,
+    serviceIdsForContext,
+    bookingSaleMode,
+    allBookingServiceIds,
+    serviceCurrencyById,
+    serviceWeightById,
+  ]);
 
   const bookingDebtContextReady =
     mode !== "booking" ||

@@ -514,7 +514,143 @@ function normalizeServiceAllocationsFromReceipt(
     .filter((row) => row.service_id > 0);
 }
 
+const normalizeSaleTotals = (input: unknown): Record<string, number> => {
+  const out: Record<string, number> = {};
+  if (!input || typeof input !== "object" || Array.isArray(input)) return out;
+  const obj = input as Record<string, unknown>;
+  for (const [keyRaw, val] of Object.entries(obj)) {
+    const key = normalizeCurrency(keyRaw);
+    const n = typeof val === "number" ? val : Number(String(val).replace(",", "."));
+    if (Number.isFinite(n) && n >= 0) out[key] = n;
+  }
+  return out;
+};
+
+type ServiceDebtInput = {
+  id_service: number;
+  currency: string | null;
+  sale_price: number | string | Prisma.Decimal | null;
+  card_interest?: number | string | Prisma.Decimal | null;
+  taxableCardInterest?: number | string | Prisma.Decimal | null;
+  vatOnCardInterest?: number | string | Prisma.Decimal | null;
+};
+
+function buildSelectedServiceSalesByCurrency(args: {
+  selectedServiceIds: number[];
+  services: ServiceDebtInput[];
+  bookingSaleMode: boolean;
+  bookingSaleTotals: Record<string, number>;
+}): Record<string, number> {
+  const out: Record<string, number> = {};
+  const selectedSet = new Set(args.selectedServiceIds);
+  const add = (code: string, amount: number) => {
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    out[code] = round2((out[code] || 0) + amount);
+  };
+
+  if (args.bookingSaleMode) {
+    const saleTotalsByCurrencyFromServices: Record<string, number> = {};
+    for (const svc of args.services) {
+      const code = normalizeCurrency(svc.currency || "ARS");
+      const sale = Math.max(0, toNum(svc.sale_price));
+      saleTotalsByCurrencyFromServices[code] = round2(
+        (saleTotalsByCurrencyFromServices[code] || 0) + sale,
+      );
+    }
+    const saleTotalsByCurrency =
+      Object.keys(args.bookingSaleTotals).length > 0
+        ? args.bookingSaleTotals
+        : saleTotalsByCurrencyFromServices;
+    for (const [code, totalRaw] of Object.entries(saleTotalsByCurrency)) {
+      const total = Math.max(0, toNum(totalRaw));
+      if (total <= 0) continue;
+      add(code, total);
+    }
+    return out;
+  }
+
+  for (const svc of args.services) {
+    if (!selectedSet.has(svc.id_service)) continue;
+    const code = normalizeCurrency(svc.currency || "ARS");
+    const sale = Math.max(0, toNum(svc.sale_price));
+    const splitInterest =
+      toNum(svc.taxableCardInterest) + toNum(svc.vatOnCardInterest);
+    const cardInterest = splitInterest > 0 ? splitInterest : toNum(svc.card_interest);
+    const serviceTotal = Math.max(0, sale + (Number.isFinite(cardInterest) ? cardInterest : 0));
+    add(code, serviceTotal);
+  }
+  return out;
+}
+
+function addUnallocatedReceiptPaidByCurrencyForSelection(args: {
+  target: Record<string, number>;
+  receipt: ReceiptDebtView;
+  selectedServiceIds: Set<number>;
+  allServiceIds: number[];
+  serviceCurrencyById: Map<number, string>;
+  serviceWeightById: Map<number, number>;
+}) {
+  const rawScopeIds = normalizeIdList(args.receipt.serviceIds);
+  const scopeIds = (rawScopeIds.length > 0 ? rawScopeIds : args.allServiceIds).filter(
+    (id) => args.serviceCurrencyById.has(id),
+  );
+  if (scopeIds.length === 0) return;
+
+  const selectedScopeIds = scopeIds.filter((id) => args.selectedServiceIds.has(id));
+  if (selectedScopeIds.length === 0) return;
+
+  const fullPaidByCurrency: Record<string, number> = {};
+  addReceiptToPaidByCurrency(fullPaidByCurrency, args.receipt);
+
+  const sumWeight = (ids: number[]) =>
+    ids.reduce((sum, id) => sum + Math.max(0, args.serviceWeightById.get(id) || 0), 0);
+
+  for (const [currencyRaw, amountRaw] of Object.entries(fullPaidByCurrency)) {
+    const currency = normalizeCurrency(currencyRaw || "ARS");
+    const amount = toNum(amountRaw);
+    if (!Number.isFinite(amount) || Math.abs(amount) <= DEBT_TOLERANCE) continue;
+
+    const scopeIdsForCurrency = scopeIds.filter(
+      (id) => args.serviceCurrencyById.get(id) === currency,
+    );
+    const selectedIdsForCurrency = selectedScopeIds.filter(
+      (id) => args.serviceCurrencyById.get(id) === currency,
+    );
+
+    let ratio = 0;
+    const totalWeightForCurrency = sumWeight(scopeIdsForCurrency);
+    const selectedWeightForCurrency = sumWeight(selectedIdsForCurrency);
+    if (
+      totalWeightForCurrency > DEBT_TOLERANCE &&
+      selectedWeightForCurrency > DEBT_TOLERANCE
+    ) {
+      ratio = selectedWeightForCurrency / totalWeightForCurrency;
+    } else if (scopeIdsForCurrency.length > 0 && selectedIdsForCurrency.length > 0) {
+      ratio = selectedIdsForCurrency.length / scopeIdsForCurrency.length;
+    } else {
+      const totalWeight = sumWeight(scopeIds);
+      const selectedWeight = sumWeight(selectedScopeIds);
+      if (totalWeight > DEBT_TOLERANCE && selectedWeight > DEBT_TOLERANCE) {
+        ratio = selectedWeight / totalWeight;
+      } else {
+        ratio = selectedScopeIds.length / scopeIds.length;
+      }
+    }
+
+    if (!Number.isFinite(ratio) || ratio <= 0) continue;
+    const proratedAmount = round2(amount * ratio);
+    if (Math.abs(proratedAmount) <= DEBT_TOLERANCE) continue;
+    args.target[currency] = round2((args.target[currency] || 0) + proratedAmount);
+  }
+}
+
 type ReceiptDebtView = {
+  serviceIds?: number[] | null;
+  service_allocations?: Array<{
+    service_id?: number | string | null;
+    amount_service?: number | string | Prisma.Decimal | null;
+    service_currency?: string | null;
+  }> | null;
   amount: number | string | Prisma.Decimal | null;
   amount_currency: string | null;
   payment_fee_amount?: number | string | Prisma.Decimal | null;
@@ -530,7 +666,25 @@ type ReceiptDebtView = {
 function addReceiptToPaidByCurrency(
   target: Record<string, number>,
   receipt: ReceiptDebtView,
+  options?: { selectedServiceIds?: Set<number> },
 ) {
+  const selectedServiceIds = options?.selectedServiceIds;
+  const rawAllocations = Array.isArray(receipt.service_allocations)
+    ? receipt.service_allocations
+    : [];
+  if (selectedServiceIds && rawAllocations.length > 0) {
+    for (const alloc of rawAllocations) {
+      const serviceId = Number(alloc?.service_id);
+      if (!Number.isFinite(serviceId) || serviceId <= 0) continue;
+      if (!selectedServiceIds.has(Math.trunc(serviceId))) continue;
+      const amount = toNum(alloc?.amount_service ?? 0);
+      if (!Number.isFinite(amount) || Math.abs(amount) <= DEBT_TOLERANCE) continue;
+      const currency = normalizeCurrency(alloc?.service_currency || "ARS");
+      target[currency] = round2((target[currency] || 0) + amount);
+    }
+    return;
+  }
+
   const amountCurrency = normalizeCurrency(receipt.amount_currency || "ARS");
   const parsedAmount = toNum(receipt.amount ?? 0);
   const parsedFee = toNum(receipt.payment_fee_amount ?? 0);
@@ -847,27 +1001,50 @@ export default async function handler(
 
       await ensureReceiptInAgency(id, authAgencyId);
 
-      if (!canReceipts && !isAttach) {
-        const linkedReceipt = await prisma.receipt.findUnique({
-          where: { id_receipt: id },
-          select: {
-            bookingId_booking: true,
-            booking: {
-              select: {
-                id_user: true,
-                id_agency: true,
-              },
+      const existing = await prisma.receipt.findUnique({
+        where: { id_receipt: id },
+        select: {
+          id_receipt: true,
+          bookingId_booking: true,
+          serviceIds: true,
+          amount: true,
+          amount_currency: true,
+          payment_fee_amount: true,
+          base_amount: true,
+          base_currency: true,
+          booking: {
+            select: {
+              id_user: true,
+              id_agency: true,
             },
           },
-        });
+          ...(schemaFlags.hasPaymentLines
+            ? {
+                payments: { select: buildReceiptPaymentSelect(schemaFlags) },
+              }
+            : {}),
+          service_allocations: {
+            select: {
+              service_id: true,
+              amount_service: true,
+              service_currency: true,
+            },
+          },
+        },
+      });
 
-        if (!linkedReceipt?.bookingId_booking || !linkedReceipt.booking) {
+      if (!existing) {
+        return res.status(404).json({ error: "Recibo no encontrado" });
+      }
+
+      if (!canReceipts && !isAttach) {
+        if (!existing.bookingId_booking || !existing.booking) {
           return res.status(403).json({ error: "Sin permisos" });
         }
 
         const canEditByRole = await canAccessBookingByRole(auth, {
-          id_user: linkedReceipt.booking.id_user,
-          id_agency: linkedReceipt.booking.id_agency,
+          id_user: existing.booking.id_user,
+          id_agency: existing.booking.id_agency,
         });
         if (!canEditByRole) {
           return res.status(403).json({ error: "Sin permisos" });
@@ -882,16 +1059,34 @@ export default async function handler(
 
         const calcConfig = await prisma.serviceCalcConfig.findUnique({
           where: { id_agency: authAgencyId },
-          select: { booking_access_rules: true },
+          select: {
+            booking_access_rules: true,
+            use_booking_sale_total: true,
+          },
         });
         const receiptServiceSelectionMode =
           extractReceiptServiceSelectionModeFromBookingAccessRules(
             calcConfig?.booking_access_rules,
           );
 
+        const bookingData = await prisma.booking.findUnique({
+          where: { id_booking: bookingId },
+          select: {
+            sale_totals: true,
+            use_booking_sale_total_override: true,
+          },
+        });
+
         const bookingServices = await prisma.service.findMany({
           where: { booking_id: bookingId },
-          select: { id_service: true },
+          select: {
+            id_service: true,
+            currency: true,
+            sale_price: true,
+            card_interest: true,
+            taxableCardInterest: true,
+            vatOnCardInterest: true,
+          },
         });
         const allBookingServiceIds = bookingServices.map((s) => s.id_service);
 
@@ -918,6 +1113,194 @@ export default async function handler(
           return res
             .status(400)
             .json({ error: "Algún servicio no pertenece a la reserva" });
+
+        const inheritedUseBookingSaleTotal = Boolean(calcConfig?.use_booking_sale_total);
+        const bookingSaleMode =
+          typeof bookingData?.use_booking_sale_total_override === "boolean"
+            ? bookingData.use_booking_sale_total_override
+            : inheritedUseBookingSaleTotal;
+        const bookingSaleTotals = normalizeSaleTotals(bookingData?.sale_totals);
+        const selectedServiceIdsForDebt = bookingSaleMode
+          ? allBookingServiceIds
+          : resolvedServiceIds;
+
+        const salesByCurrency = buildSelectedServiceSalesByCurrency({
+          selectedServiceIds: selectedServiceIdsForDebt,
+          services: bookingServices,
+          bookingSaleMode,
+          bookingSaleTotals,
+        });
+
+        const selectedServiceIdSet = new Set(selectedServiceIdsForDebt);
+        const allocationScopeServiceIds = bookingSaleMode
+          ? undefined
+          : selectedServiceIdSet;
+        const serviceCurrencyById = new Map(
+          bookingServices.map((service) => [
+            service.id_service,
+            normalizeCurrency(service.currency || "ARS"),
+          ]),
+        );
+        const serviceWeightById = new Map(
+          bookingServices.map((service) => {
+            const sale = Math.max(0, toNum(service.sale_price));
+            const splitInterest =
+              toNum(service.taxableCardInterest) +
+              toNum(service.vatOnCardInterest);
+            const cardInterest =
+              splitInterest > 0 ? splitInterest : toNum(service.card_interest);
+            const total = Math.max(
+              0,
+              sale + (Number.isFinite(cardInterest) ? cardInterest : 0),
+            );
+            return [service.id_service, round2(total)];
+          }),
+        );
+
+        const receiptsInBooking = await prisma.receipt.findMany({
+          where: {
+            bookingId_booking: bookingId,
+            NOT: { id_receipt: id },
+          },
+          select: {
+            serviceIds: true,
+            service_allocations: {
+              select: {
+                service_id: true,
+                amount_service: true,
+                service_currency: true,
+              },
+            },
+            amount: true,
+            amount_currency: true,
+            payment_fee_amount: true,
+            base_amount: true,
+            base_currency: true,
+            ...(schemaFlags.hasPaymentLines
+              ? {
+                  payments: {
+                    select: {
+                      amount: true,
+                      ...(schemaFlags.hasPaymentCurrency
+                        ? { payment_currency: true }
+                        : {}),
+                      ...(schemaFlags.hasPaymentFeeAmount
+                        ? { fee_amount: true }
+                        : {}),
+                    },
+                  },
+                }
+              : {}),
+          },
+        });
+
+        const paidByCurrency: Record<string, number> = {};
+        for (const receipt of receiptsInBooking) {
+          const receiptAllocationIds = Array.isArray(receipt.service_allocations)
+            ? Array.from(
+                new Set(
+                  receipt.service_allocations
+                    .map((alloc) => Number(alloc?.service_id))
+                    .filter((sid) => Number.isFinite(sid) && sid > 0)
+                    .map((sid) => Math.trunc(sid)),
+                ),
+              )
+            : [];
+          const receiptServiceIds = normalizeIdList(receipt.serviceIds);
+          const hasAllocations = receiptAllocationIds.length > 0;
+          const appliesToSelection =
+            bookingSaleMode ||
+            (hasAllocations
+              ? receiptAllocationIds.some((sid) => selectedServiceIdSet.has(sid))
+              : receiptServiceIds.length === 0 ||
+                receiptServiceIds.some((sid) => selectedServiceIdSet.has(sid)));
+          if (!appliesToSelection) continue;
+
+          if (!bookingSaleMode && allocationScopeServiceIds) {
+            if (hasAllocations) {
+              addReceiptToPaidByCurrency(paidByCurrency, receipt, {
+                selectedServiceIds: allocationScopeServiceIds,
+              });
+            } else {
+              addUnallocatedReceiptPaidByCurrencyForSelection({
+                target: paidByCurrency,
+                receipt,
+                selectedServiceIds: allocationScopeServiceIds,
+                allServiceIds: allBookingServiceIds,
+                serviceCurrencyById,
+                serviceWeightById,
+              });
+            }
+            continue;
+          }
+
+          addReceiptToPaidByCurrency(paidByCurrency, receipt);
+        }
+
+        const remainingBeforeCurrent: Record<string, number> = {};
+        const debtCurrencies = new Set([
+          ...Object.keys(salesByCurrency),
+          ...Object.keys(paidByCurrency),
+        ]);
+        for (const code of debtCurrencies) {
+          remainingBeforeCurrent[code] = round2(
+            (salesByCurrency[code] || 0) - (paidByCurrency[code] || 0),
+          );
+        }
+
+        const hasPendingBalance = Object.values(remainingBeforeCurrent).some(
+          (value) => value > DEBT_TOLERANCE,
+        );
+        if (!hasPendingBalance) {
+          return res.status(400).json({
+            error: bookingSaleMode
+              ? "La reserva ya está saldada."
+              : "Los servicios seleccionados ya están saldados.",
+          });
+        }
+
+        const currentPaidByCurrency: Record<string, number> = {};
+        addReceiptToPaidByCurrency(
+          currentPaidByCurrency,
+          {
+            amount: existing.amount,
+            amount_currency: existing.amount_currency,
+            payment_fee_amount: existing.payment_fee_amount,
+            base_amount: existing.base_amount,
+            base_currency: existing.base_currency,
+            serviceIds: resolvedServiceIds,
+            service_allocations: [],
+            payments: normalizePaymentsFromReceipt(existing).map((p) => ({
+              amount: p.amount,
+              payment_currency: p.payment_currency,
+              fee_amount: p.fee_amount,
+            })),
+          },
+          allocationScopeServiceIds
+            ? {
+                selectedServiceIds: allocationScopeServiceIds,
+              }
+            : undefined,
+        );
+
+        const overpaidCurrencies: string[] = [];
+        for (const code of new Set([
+          ...Object.keys(remainingBeforeCurrent),
+          ...Object.keys(currentPaidByCurrency),
+        ])) {
+          const remainingAfterCurrent = round2(
+            (remainingBeforeCurrent[code] || 0) -
+              (currentPaidByCurrency[code] || 0),
+          );
+          if (remainingAfterCurrent < -DEBT_TOLERANCE) {
+            overpaidCurrencies.push(code);
+          }
+        }
+        if (overpaidCurrencies.length > 0) {
+          return res.status(400).json({
+            error: `El recibo excede el saldo pendiente en ${overpaidCurrencies.join(", ")}.`,
+          });
+        }
 
         let nextClientIds: number[] | undefined = undefined;
         if (Array.isArray(body.clientIds)) {
@@ -974,25 +1357,6 @@ export default async function handler(
         });
       }
 
-      const existing = await prisma.receipt.findUnique({
-        where: { id_receipt: id },
-        select: {
-          id_receipt: true,
-          bookingId_booking: true,
-          serviceIds: true,
-          service_allocations: {
-            select: {
-              service_id: true,
-              amount_service: true,
-              service_currency: true,
-            },
-          },
-        },
-      });
-
-      if (!existing)
-        return res.status(404).json({ error: "Recibo no encontrado" });
-
       const {
         concept,
         currency,
@@ -1018,6 +1382,26 @@ export default async function handler(
       const hasServiceAllocationsField =
         Object.prototype.hasOwnProperty.call(body, "serviceAllocations") ||
         Object.prototype.hasOwnProperty.call(body, "service_allocations");
+      const hasBaseAmountField = Object.prototype.hasOwnProperty.call(
+        body,
+        "base_amount",
+      );
+      const hasBaseCurrencyField = Object.prototype.hasOwnProperty.call(
+        body,
+        "base_currency",
+      );
+      const hasCounterAmountField = Object.prototype.hasOwnProperty.call(
+        body,
+        "counter_amount",
+      );
+      const hasCounterCurrencyField = Object.prototype.hasOwnProperty.call(
+        body,
+        "counter_currency",
+      );
+      const hasPaymentFeeAmountField = Object.prototype.hasOwnProperty.call(
+        body,
+        "payment_fee_amount",
+      );
       const parsedServiceAllocations = parseReceiptServiceAllocations(
         Array.isArray(serviceAllocations)
           ? serviceAllocations
@@ -1284,19 +1668,40 @@ export default async function handler(
       const serviceAllocationsForValidation = hasServiceAllocationsField
         ? normalizedServiceAllocationsForSave
         : normalizedExistingServiceAllocations;
+      const existingPaymentsForDebt = normalizePaymentsFromReceipt(existing).map((p) => ({
+        amount: p.amount,
+        payment_currency: p.payment_currency,
+        fee_amount: p.fee_amount,
+      }));
+      const candidatePaymentsForDebt = hasPayments
+        ? normalizedPayments.map((p) => ({
+            amount: p.amount,
+            payment_currency: p.payment_currency,
+            fee_amount: p.fee_amount,
+          }))
+        : existingPaymentsForDebt;
+      const candidateBaseAmountForDebt = hasBaseAmountField
+        ? base_amount ?? null
+        : existing.base_amount ?? null;
+      const candidateBaseCurrencyForDebt = hasBaseCurrencyField
+        ? baseCurrencyISO ?? null
+        : existing.base_currency
+          ? normalizeCurrency(existing.base_currency)
+          : null;
+      const candidatePaymentFeeAmountForDebt = hasPayments
+        ? paymentFeeAmountNum
+        : hasPaymentFeeAmountField
+          ? Math.max(0, toNum(payment_fee_amount))
+          : Math.max(0, toNum(existing.payment_fee_amount ?? 0));
       if (serviceAllocationsForValidation.length > 0) {
         const availableByCurrency: Record<string, number> = {};
         addReceiptToPaidByCurrency(availableByCurrency, {
           amount: amountNum,
           amount_currency: amountCurrencyISO,
-          payment_fee_amount: paymentFeeAmountNum,
-          base_amount: base_amount ?? null,
-          base_currency: baseCurrencyISO ?? null,
-          payments: normalizedPayments.map((p) => ({
-            amount: p.amount,
-            payment_currency: p.payment_currency,
-            fee_amount: p.fee_amount,
-          })),
+          payment_fee_amount: candidatePaymentFeeAmountForDebt,
+          base_amount: candidateBaseAmountForDebt,
+          base_currency: candidateBaseCurrencyForDebt,
+          payments: candidatePaymentsForDebt,
         });
 
         const allocatedByCurrency = serviceAllocationsForValidation.reduce<
@@ -1327,6 +1732,236 @@ export default async function handler(
         }
       }
 
+      if (existing.bookingId_booking) {
+        const calcConfig = await prisma.serviceCalcConfig.findUnique({
+          where: { id_agency: authAgencyId },
+          select: { use_booking_sale_total: true },
+        });
+        const bookingData = await prisma.booking.findUnique({
+          where: { id_booking: existing.bookingId_booking },
+          select: {
+            sale_totals: true,
+            use_booking_sale_total_override: true,
+          },
+        });
+        const bookingServices = await prisma.service.findMany({
+          where: { booking_id: existing.bookingId_booking },
+          select: {
+            id_service: true,
+            currency: true,
+            sale_price: true,
+            card_interest: true,
+            taxableCardInterest: true,
+            vatOnCardInterest: true,
+          },
+        });
+        const allBookingServiceIds = bookingServices.map((service) => service.id_service);
+        const receiptServiceIds = normalizeIdList(existing.serviceIds);
+        const inheritedUseBookingSaleTotal = Boolean(calcConfig?.use_booking_sale_total);
+        const bookingSaleMode =
+          typeof bookingData?.use_booking_sale_total_override === "boolean"
+            ? bookingData.use_booking_sale_total_override
+            : inheritedUseBookingSaleTotal;
+        const bookingSaleTotals = normalizeSaleTotals(bookingData?.sale_totals);
+        const selectedServiceIdsForDebt = bookingSaleMode
+          ? allBookingServiceIds
+          : receiptServiceIds.length > 0
+            ? receiptServiceIds
+            : allBookingServiceIds;
+        const salesByCurrency = buildSelectedServiceSalesByCurrency({
+          selectedServiceIds: selectedServiceIdsForDebt,
+          services: bookingServices,
+          bookingSaleMode,
+          bookingSaleTotals,
+        });
+
+        const selectedServiceIdSet = new Set(selectedServiceIdsForDebt);
+        const allocationScopeServiceIds = bookingSaleMode
+          ? undefined
+          : selectedServiceIdSet;
+        const serviceCurrencyById = new Map(
+          bookingServices.map((service) => [
+            service.id_service,
+            normalizeCurrency(service.currency || "ARS"),
+          ]),
+        );
+        const serviceWeightById = new Map(
+          bookingServices.map((service) => {
+            const sale = Math.max(0, toNum(service.sale_price));
+            const splitInterest =
+              toNum(service.taxableCardInterest) +
+              toNum(service.vatOnCardInterest);
+            const cardInterest =
+              splitInterest > 0 ? splitInterest : toNum(service.card_interest);
+            const total = Math.max(
+              0,
+              sale + (Number.isFinite(cardInterest) ? cardInterest : 0),
+            );
+            return [service.id_service, round2(total)];
+          }),
+        );
+
+        const receiptsInBooking = await prisma.receipt.findMany({
+          where: {
+            bookingId_booking: existing.bookingId_booking,
+            NOT: { id_receipt: id },
+          },
+          select: {
+            serviceIds: true,
+            service_allocations: {
+              select: {
+                service_id: true,
+                amount_service: true,
+                service_currency: true,
+              },
+            },
+            amount: true,
+            amount_currency: true,
+            payment_fee_amount: true,
+            base_amount: true,
+            base_currency: true,
+            ...(schemaFlags.hasPaymentLines
+              ? {
+                  payments: {
+                    select: {
+                      amount: true,
+                      ...(schemaFlags.hasPaymentCurrency
+                        ? { payment_currency: true }
+                        : {}),
+                      ...(schemaFlags.hasPaymentFeeAmount
+                        ? { fee_amount: true }
+                        : {}),
+                    },
+                  },
+                }
+              : {}),
+          },
+        });
+
+        const paidByCurrency: Record<string, number> = {};
+        for (const receipt of receiptsInBooking) {
+          const receiptAllocationIds = Array.isArray(receipt.service_allocations)
+            ? Array.from(
+                new Set(
+                  receipt.service_allocations
+                    .map((alloc) => Number(alloc?.service_id))
+                    .filter((sid) => Number.isFinite(sid) && sid > 0)
+                    .map((sid) => Math.trunc(sid)),
+                ),
+              )
+            : [];
+          const scopedReceiptServiceIds = normalizeIdList(receipt.serviceIds);
+          const hasAllocations = receiptAllocationIds.length > 0;
+          const appliesToSelection =
+            bookingSaleMode ||
+            (hasAllocations
+              ? receiptAllocationIds.some((sid) => selectedServiceIdSet.has(sid))
+              : scopedReceiptServiceIds.length === 0 ||
+                scopedReceiptServiceIds.some((sid) => selectedServiceIdSet.has(sid)));
+          if (!appliesToSelection) continue;
+
+          if (!bookingSaleMode && allocationScopeServiceIds) {
+            if (hasAllocations) {
+              addReceiptToPaidByCurrency(paidByCurrency, receipt, {
+                selectedServiceIds: allocationScopeServiceIds,
+              });
+            } else {
+              addUnallocatedReceiptPaidByCurrencyForSelection({
+                target: paidByCurrency,
+                receipt,
+                selectedServiceIds: allocationScopeServiceIds,
+                allServiceIds: allBookingServiceIds,
+                serviceCurrencyById,
+                serviceWeightById,
+              });
+            }
+            continue;
+          }
+          addReceiptToPaidByCurrency(paidByCurrency, receipt);
+        }
+
+        const remainingBeforeCurrent: Record<string, number> = {};
+        for (const code of new Set([
+          ...Object.keys(salesByCurrency),
+          ...Object.keys(paidByCurrency),
+        ])) {
+          remainingBeforeCurrent[code] = round2(
+            (salesByCurrency[code] || 0) - (paidByCurrency[code] || 0),
+          );
+        }
+
+        const currentPaidByCurrencyOriginal: Record<string, number> = {};
+        addReceiptToPaidByCurrency(
+          currentPaidByCurrencyOriginal,
+          {
+            amount: existing.amount,
+            amount_currency: existing.amount_currency,
+            payment_fee_amount: existing.payment_fee_amount,
+            base_amount: existing.base_amount,
+            base_currency: existing.base_currency,
+            serviceIds: existing.serviceIds,
+            service_allocations: normalizedExistingServiceAllocations,
+            payments: existingPaymentsForDebt,
+          },
+          allocationScopeServiceIds
+            ? {
+                selectedServiceIds: allocationScopeServiceIds,
+              }
+            : undefined,
+        );
+
+        const currentPaidByCurrencyCandidate: Record<string, number> = {};
+        addReceiptToPaidByCurrency(
+          currentPaidByCurrencyCandidate,
+          {
+            amount: amountNum,
+            amount_currency: amountCurrencyISO,
+            payment_fee_amount: candidatePaymentFeeAmountForDebt,
+            base_amount: candidateBaseAmountForDebt,
+            base_currency: candidateBaseCurrencyForDebt,
+            serviceIds: existing.serviceIds,
+            service_allocations: serviceAllocationsForValidation,
+            payments: candidatePaymentsForDebt,
+          },
+          allocationScopeServiceIds
+            ? {
+                selectedServiceIds: allocationScopeServiceIds,
+              }
+            : undefined,
+        );
+
+        const allCurrencies = new Set([
+          ...Object.keys(remainingBeforeCurrent),
+          ...Object.keys(currentPaidByCurrencyOriginal),
+          ...Object.keys(currentPaidByCurrencyCandidate),
+        ]);
+        const increasingOverpaidCurrencies: string[] = [];
+        for (const code of allCurrencies) {
+          const originalOverpay = Math.max(
+            0,
+            round2(
+              (currentPaidByCurrencyOriginal[code] || 0) -
+                (remainingBeforeCurrent[code] || 0),
+            ),
+          );
+          const candidateOverpay = Math.max(
+            0,
+            round2(
+              (currentPaidByCurrencyCandidate[code] || 0) -
+                (remainingBeforeCurrent[code] || 0),
+            ),
+          );
+          if (candidateOverpay - originalOverpay > DEBT_TOLERANCE) {
+            increasingOverpaidCurrencies.push(code);
+          }
+        }
+        if (increasingOverpaidCurrencies.length > 0) {
+          return res.status(400).json({
+            error: `El recibo excede el saldo pendiente en ${increasingOverpaidCurrencies.join(", ")}.`,
+          });
+        }
+      }
+
       const legacyPmId = hasPayments
         ? normalizedPayments[0]?.payment_method_id
         : Number.isFinite(Number(payment_method_id)) &&
@@ -1353,14 +1988,20 @@ export default async function handler(
         ...(legacyPmId ? { payment_method_id: legacyPmId } : {}),
         ...(legacyAccId ? { account_id: legacyAccId ?? undefined } : {}),
 
-        ...(toDec(base_amount) ? { base_amount: toDec(base_amount) } : {}),
-        ...(baseCurrencyISO ? { base_currency: baseCurrencyISO } : {}),
-        ...(toDec(counter_amount)
-          ? { counter_amount: toDec(counter_amount) }
+        ...(hasBaseAmountField
+          ? { base_amount: toDec(base_amount) ?? null }
           : {}),
-        ...(counterCurrencyISO ? { counter_currency: counterCurrencyISO } : {}),
-        ...(toDec(paymentFeeAmountNum)
-          ? { payment_fee_amount: toDec(paymentFeeAmountNum) }
+        ...(hasBaseCurrencyField
+          ? { base_currency: baseCurrencyISO ?? null }
+          : {}),
+        ...(hasCounterAmountField
+          ? { counter_amount: toDec(counter_amount) ?? null }
+          : {}),
+        ...(hasCounterCurrencyField
+          ? { counter_currency: counterCurrencyISO ?? null }
+          : {}),
+        ...(hasPayments || hasPaymentFeeAmountField
+          ? { payment_fee_amount: toDec(paymentFeeAmountNum) ?? null }
           : {}),
 
         ...(parsedIssueDate ? { issue_date: parsedIssueDate } : {}),

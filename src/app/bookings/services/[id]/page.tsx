@@ -453,9 +453,7 @@ export default function ServicesPage() {
         let invoicesFinal = seededInvoices;
 
         try {
-          if (!seededServices.length) {
-            await fetchServices(bookingId, ac.signal);
-          }
+          await fetchServices(bookingId, ac.signal);
         } catch {
           if (!seededServices.length) {
             toast.error("No se pudieron cargar los servicios.");
@@ -577,7 +575,9 @@ export default function ServicesPage() {
   /* ============================ HANDLERS ============================ */
 
   const handleReceiptCreated = () => {
-    if (booking?.id_booking) void fetchReceipts(booking.id_booking);
+    if (!booking?.id_booking) return;
+    void fetchReceipts(booking.id_booking);
+    void fetchServices(booking.id_booking);
   };
 
   const handleReceiptDeleted = (id_receipt: number) => {

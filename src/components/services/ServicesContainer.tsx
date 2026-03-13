@@ -2680,24 +2680,14 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                                     : undefined,
                                 pending_amount:
                                   Number.isFinite(pendingAmount) &&
-                                  pendingAmount > 0
-                                    ? pendingAmount
+                                  pendingAmount >= 0
+                                    ? Math.max(0, pendingAmount)
                                     : undefined,
                                 type: s?.type ?? undefined,
                                 destination:
                                   s?.destination ?? s?.destino ?? undefined,
                               };
                             });
-
-                          if (
-                            booking?.id_booking === bId &&
-                            Array.isArray(services) &&
-                            services.length
-                          ) {
-                            return mapToLite(
-                              services as unknown as ReadonlyArray<BookingServiceItem>,
-                            );
-                          }
 
                           const parseJsonToArray = (
                             json: unknown,
