@@ -1045,18 +1045,18 @@ export default function QuotesPage() {
     | "quote_asc"
   >("updated_desc");
   const [formSections, setFormSections] = useState<Record<string, boolean>>({
-    booking: true,
-    custom: true,
-    pax: true,
-    services: true,
+    booking: false,
+    custom: false,
+    pax: false,
+    services: false,
   });
   const [convertSections, setConvertSections] = useState<
     Record<string, boolean>
   >({
-    booking: true,
-    titular: true,
-    companions: true,
-    services: true,
+    booking: false,
+    titular: false,
+    companions: false,
+    services: false,
   });
   const [showMetaOverrides, setShowMetaOverrides] = useState(false);
 
@@ -1612,10 +1612,10 @@ export default function QuotesPage() {
     closeConvert();
     setExpandedQuoteId(null);
     setFormSections({
-      booking: true,
-      custom: true,
-      pax: true,
-      services: true,
+      booking: false,
+      custom: false,
+      pax: false,
+      services: false,
     });
   };
 
@@ -1644,8 +1644,8 @@ export default function QuotesPage() {
     setExpandedQuoteId(quote.id_quote);
     setShowMetaOverrides(false);
     setFormSections({
-      booking: true,
-      custom: true,
+      booking: false,
+      custom: false,
       pax: false,
       services: false,
     });
@@ -1910,10 +1910,10 @@ export default function QuotesPage() {
 
     setWorkspaceView("form");
     setConvertSections({
-      booking: true,
-      titular: true,
-      companions: true,
-      services: true,
+      booking: false,
+      titular: false,
+      companions: false,
+      services: false,
     });
     setConvertQuote(quote);
     setConvertForm({
@@ -2983,6 +2983,221 @@ export default function QuotesPage() {
                     </div>
                   )}
                 </SectionCard>
+                {customFields.length > 0 && (
+                  <SectionCard
+                    id="custom"
+                    title="Campos personalizados"
+                    subtitle="Campos dinámicos configurados por agencia"
+                    open={Boolean(formSections.custom)}
+                    onToggle={toggleFormSection}
+                  >
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {customFields.map((field) => {
+                        const val = form.custom_values[field.key];
+                        const selectedMulti = Array.isArray(val)
+                          ? Array.from(
+                              new Set(
+                                val
+                                  .map((item) => cleanString(item))
+                                  .filter((item) => item.length > 0),
+                              ),
+                            )
+                          : [];
+                        const commonProps = {
+                          className: INPUT,
+                          placeholder: field.label,
+                          value:
+                            typeof val === "string" || typeof val === "number"
+                              ? String(val)
+                              : "",
+                          onChange: (
+                            e: ChangeEvent<
+                              | HTMLInputElement
+                              | HTMLTextAreaElement
+                              | HTMLSelectElement
+                            >,
+                          ) => {
+                            const raw = e.target.value;
+                            setForm((prev) => ({
+                              ...prev,
+                              custom_values: {
+                                ...prev.custom_values,
+                                [field.key]:
+                                  field.type === "number"
+                                    ? raw === ""
+                                      ? ""
+                                      : Number(raw)
+                                    : raw,
+                              },
+                            }));
+                          },
+                        };
+
+                        if (field.type === "textarea") {
+                          return (
+                            <div className="md:col-span-2" key={field.key}>
+                              <label className="mb-1 block text-xs opacity-75">
+                                {field.label}
+                              </label>
+                              <textarea
+                                {...commonProps}
+                                className={`${INPUT} min-h-20`}
+                              />
+                            </div>
+                          );
+                        }
+
+                        if (field.type === "select") {
+                          return (
+                            <div key={field.key}>
+                              <label className="mb-1 block text-xs opacity-75">
+                                {field.label}
+                              </label>
+                              <select {...commonProps} className={SELECT}>
+                                <option value="">Seleccionar</option>
+                                {(field.options || []).map((opt) => (
+                                  <option key={opt} value={opt}>
+                                    {opt}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          );
+                        }
+
+                        if (field.type === "multiselect") {
+                          const options = field.options || [];
+                          return (
+                            <div key={field.key}>
+                              <label className="mb-1 block text-xs opacity-75">
+                                {field.label}
+                              </label>
+                              {options.length === 0 ? (
+                                <div className="rounded-2xl border border-sky-300/35 bg-white/45 px-3 py-2 text-xs opacity-75 dark:border-sky-200/25 dark:bg-sky-950/20">
+                                  Sin opciones configuradas.
+                                </div>
+                              ) : (
+                                <div className="space-y-1 rounded-2xl border border-sky-300/35 bg-white/45 px-3 py-2 dark:border-sky-200/25 dark:bg-sky-950/20">
+                                  {options.map((opt) => {
+                                    const checked = selectedMulti.includes(opt);
+                                    return (
+                                      <label
+                                        key={opt}
+                                        className="flex items-center gap-2 text-sm"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          className="size-4 rounded border-sky-300 text-sky-600 focus:ring-sky-400/40"
+                                          checked={checked}
+                                          onChange={(e) => {
+                                            setForm((prev) => {
+                                              const current = Array.isArray(
+                                                prev.custom_values[field.key],
+                                              )
+                                                ? Array.from(
+                                                    new Set(
+                                                      (
+                                                        prev.custom_values[
+                                                          field.key
+                                                        ] as unknown[]
+                                                      )
+                                                        .map((item) =>
+                                                          cleanString(item),
+                                                        )
+                                                        .filter(
+                                                          (item) =>
+                                                            item.length > 0,
+                                                        ),
+                                                    ),
+                                                  )
+                                                : [];
+                                              const next = e.target.checked
+                                                ? Array.from(
+                                                    new Set([...current, opt]),
+                                                  )
+                                                : current.filter(
+                                                    (item) => item !== opt,
+                                                  );
+                                              return {
+                                                ...prev,
+                                                custom_values: {
+                                                  ...prev.custom_values,
+                                                  [field.key]: next,
+                                                },
+                                              };
+                                            });
+                                          }}
+                                        />
+                                        <span>{opt}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        if (field.type === "boolean") {
+                          return (
+                            <div key={field.key}>
+                              <label className="mb-1 block text-xs opacity-75">
+                                {field.label}
+                              </label>
+                              <select
+                                className={SELECT}
+                                value={
+                                  typeof val === "boolean"
+                                    ? val
+                                      ? "true"
+                                      : "false"
+                                    : ""
+                                }
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  setForm((prev) => ({
+                                    ...prev,
+                                    custom_values: {
+                                      ...prev.custom_values,
+                                      [field.key]:
+                                        raw === ""
+                                          ? ""
+                                          : raw === "true"
+                                            ? true
+                                            : false,
+                                    },
+                                  }));
+                                }}
+                              >
+                                <option value="">Seleccionar</option>
+                                <option value="true">Sí</option>
+                                <option value="false">No</option>
+                              </select>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div key={field.key}>
+                            <label className="mb-1 block text-xs opacity-75">
+                              {field.label}
+                            </label>
+                            <input
+                              {...commonProps}
+                              type={
+                                field.type === "number"
+                                  ? "number"
+                                  : field.type === "date"
+                                    ? "date"
+                                    : "text"
+                              }
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </SectionCard>
+                )}
 
                 <SectionCard
                   id="services"
@@ -3316,223 +3531,6 @@ export default function QuotesPage() {
                     </div>
                   )}
                 </SectionCard>
-
-                {customFields.length > 0 && (
-                  <SectionCard
-                    id="custom"
-                    title="Campos personalizados"
-                    subtitle="Campos dinámicos configurados por agencia"
-                    open={Boolean(formSections.custom)}
-                    onToggle={toggleFormSection}
-                  >
-                    <div className="grid gap-3 md:grid-cols-2">
-                      {customFields.map((field) => {
-                        const val = form.custom_values[field.key];
-                        const selectedMulti = Array.isArray(val)
-                          ? Array.from(
-                              new Set(
-                                val
-                                  .map((item) => cleanString(item))
-                                  .filter((item) => item.length > 0),
-                              ),
-                            )
-                          : [];
-                        const commonProps = {
-                          className: INPUT,
-                          placeholder: field.label,
-                          value:
-                            typeof val === "string" || typeof val === "number"
-                              ? String(val)
-                              : "",
-                          onChange: (
-                            e: ChangeEvent<
-                              | HTMLInputElement
-                              | HTMLTextAreaElement
-                              | HTMLSelectElement
-                            >,
-                          ) => {
-                            const raw = e.target.value;
-                            setForm((prev) => ({
-                              ...prev,
-                              custom_values: {
-                                ...prev.custom_values,
-                                [field.key]:
-                                  field.type === "number"
-                                    ? raw === ""
-                                      ? ""
-                                      : Number(raw)
-                                    : raw,
-                              },
-                            }));
-                          },
-                        };
-
-                        if (field.type === "textarea") {
-                          return (
-                            <div className="md:col-span-2" key={field.key}>
-                              <label className="mb-1 block text-xs opacity-75">
-                                {field.label}
-                              </label>
-                              <textarea
-                                {...commonProps}
-                                className={`${INPUT} min-h-20`}
-                              />
-                            </div>
-                          );
-                        }
-
-                        if (field.type === "select") {
-                          return (
-                            <div key={field.key}>
-                              <label className="mb-1 block text-xs opacity-75">
-                                {field.label}
-                              </label>
-                              <select {...commonProps} className={SELECT}>
-                                <option value="">Seleccionar</option>
-                                {(field.options || []).map((opt) => (
-                                  <option key={opt} value={opt}>
-                                    {opt}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          );
-                        }
-
-                        if (field.type === "multiselect") {
-                          const options = field.options || [];
-                          return (
-                            <div key={field.key}>
-                              <label className="mb-1 block text-xs opacity-75">
-                                {field.label}
-                              </label>
-                              {options.length === 0 ? (
-                                <div className="rounded-2xl border border-sky-300/35 bg-white/45 px-3 py-2 text-xs opacity-75 dark:border-sky-200/25 dark:bg-sky-950/20">
-                                  Sin opciones configuradas.
-                                </div>
-                              ) : (
-                                <div className="space-y-1 rounded-2xl border border-sky-300/35 bg-white/45 px-3 py-2 dark:border-sky-200/25 dark:bg-sky-950/20">
-                                  {options.map((opt) => {
-                                    const checked = selectedMulti.includes(opt);
-                                    return (
-                                      <label
-                                        key={opt}
-                                        className="flex items-center gap-2 text-sm"
-                                      >
-                                        <input
-                                          type="checkbox"
-                                          className="size-4 rounded border-sky-300 text-sky-600 focus:ring-sky-400/40"
-                                          checked={checked}
-                                          onChange={(e) => {
-                                            setForm((prev) => {
-                                              const current = Array.isArray(
-                                                prev.custom_values[field.key],
-                                              )
-                                                ? Array.from(
-                                                    new Set(
-                                                      (
-                                                        prev.custom_values[
-                                                          field.key
-                                                        ] as unknown[]
-                                                      )
-                                                        .map((item) =>
-                                                          cleanString(item),
-                                                        )
-                                                        .filter(
-                                                          (item) =>
-                                                            item.length > 0,
-                                                        ),
-                                                    ),
-                                                  )
-                                                : [];
-                                              const next = e.target.checked
-                                                ? Array.from(
-                                                    new Set([...current, opt]),
-                                                  )
-                                                : current.filter(
-                                                    (item) => item !== opt,
-                                                  );
-                                              return {
-                                                ...prev,
-                                                custom_values: {
-                                                  ...prev.custom_values,
-                                                  [field.key]: next,
-                                                },
-                                              };
-                                            });
-                                          }}
-                                        />
-                                        <span>{opt}</span>
-                                      </label>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        }
-
-                        if (field.type === "boolean") {
-                          return (
-                            <div key={field.key}>
-                              <label className="mb-1 block text-xs opacity-75">
-                                {field.label}
-                              </label>
-                              <select
-                                className={SELECT}
-                                value={
-                                  typeof val === "boolean"
-                                    ? val
-                                      ? "true"
-                                      : "false"
-                                    : ""
-                                }
-                                onChange={(e) => {
-                                  const raw = e.target.value;
-                                  setForm((prev) => ({
-                                    ...prev,
-                                    custom_values: {
-                                      ...prev.custom_values,
-                                      [field.key]:
-                                        raw === ""
-                                          ? ""
-                                          : raw === "true"
-                                            ? true
-                                            : false,
-                                    },
-                                  }));
-                                }}
-                              >
-                                <option value="">Seleccionar</option>
-                                <option value="true">Sí</option>
-                                <option value="false">No</option>
-                              </select>
-                            </div>
-                          );
-                        }
-
-                        return (
-                          <div key={field.key}>
-                            <label className="mb-1 block text-xs opacity-75">
-                              {field.label}
-                            </label>
-                            <input
-                              {...commonProps}
-                              type={
-                                field.type === "number"
-                                  ? "number"
-                                  : field.type === "date"
-                                    ? "date"
-                                    : "text"
-                              }
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </SectionCard>
-                )}
-
                 {canOverrideQuoteMeta && (
                   <div className={`${SECTION_GLASS} p-4`}>
                     <div className="flex flex-wrap items-center justify-between gap-3">
