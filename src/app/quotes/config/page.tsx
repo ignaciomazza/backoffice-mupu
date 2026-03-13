@@ -196,6 +196,18 @@ const defaultNewField = (): NewFieldState => ({
   help: "",
 });
 
+function mapCustomFieldToNewField(field: QuoteCustomField): NewFieldState {
+  return {
+    label: field.label,
+    type: field.type,
+    required: Boolean(field.required),
+    options: Array.isArray(field.options) ? [...field.options] : [],
+    optionDraft: "",
+    placeholder: field.placeholder ?? "",
+    help: field.help ?? "",
+  };
+}
+
 function ToggleSwitch({
   checked,
   disabled,
@@ -238,6 +250,9 @@ export default function QuotesConfigPage() {
   const [hiddenFields, setHiddenFields] = useState<string[]>([]);
   const [customFields, setCustomFields] = useState<QuoteCustomField[]>([]);
   const [newField, setNewField] = useState<NewFieldState>(defaultNewField());
+  const [editingCustomFieldKey, setEditingCustomFieldKey] = useState<string | null>(
+    null,
+  );
   const [customSearch, setCustomSearch] = useState("");
   const [activeStack, setActiveStack] = useState<ConfigStack>("obligatorios");
 
@@ -332,7 +347,17 @@ export default function QuotesConfigPage() {
     setRequiredFields((prev) => prev.filter((item) => item !== key));
   };
 
-  const addCustomField = () => {
+  const resetCustomFieldForm = () => {
+    setEditingCustomFieldKey(null);
+    setNewField(defaultNewField());
+  };
+
+  const startEditingCustomField = (field: QuoteCustomField) => {
+    setEditingCustomFieldKey(field.key);
+    setNewField(mapCustomFieldToNewField(field));
+  };
+
+  const upsertCustomField = () => {
     const label = newField.label.trim();
     if (!label) {
       toast.error("Definí al menos el nombre del campo.");
@@ -342,10 +367,7 @@ export default function QuotesConfigPage() {
       toast.error("Agregá al menos una opción para este campo de lista.");
       return;
     }
-    const key = buildUniqueKey(label, customFields.map((field) => field.key));
-
-    const field: QuoteCustomField = {
-      key,
+    const draftField: Omit<QuoteCustomField, "key"> = {
       label,
       type: newField.type,
       required: newField.required,
@@ -354,8 +376,25 @@ export default function QuotesConfigPage() {
       options: requiresChoiceOptions(newField.type) ? newField.options : undefined,
     };
 
-    setCustomFields((prev) => [...prev, field]);
-    setNewField(defaultNewField());
+    if (editingCustomFieldKey) {
+      setCustomFields((prev) =>
+        prev.map((field) =>
+          field.key === editingCustomFieldKey
+            ? {
+                key: editingCustomFieldKey,
+                ...draftField,
+              }
+            : field,
+        ),
+      );
+      toast.success("Campo actualizado.");
+      resetCustomFieldForm();
+      return;
+    }
+
+    const key = buildUniqueKey(label, customFields.map((field) => field.key));
+    setCustomFields((prev) => [...prev, { key, ...draftField }]);
+    resetCustomFieldForm();
   };
 
   const addNewFieldOption = () => {
@@ -384,14 +423,9 @@ export default function QuotesConfigPage() {
 
   const removeCustomField = (key: string) => {
     setCustomFields((prev) => prev.filter((f) => f.key !== key));
-  };
-
-  const toggleCustomFieldRequired = (key: string) => {
-    setCustomFields((prev) =>
-      prev.map((field) =>
-        field.key === key ? { ...field, required: !field.required } : field,
-      ),
-    );
+    if (editingCustomFieldKey === key) {
+      resetCustomFieldForm();
+    }
   };
 
   const saveConfig = async () => {
@@ -639,6 +673,11 @@ export default function QuotesConfigPage() {
             <p className="mb-3 text-sm text-sky-900/75 dark:text-sky-100/70">
               Creá campos a medida y administralos desde un solo bloque.
             </p>
+            {editingCustomFieldKey && (
+              <p className="mb-3 text-xs text-sky-900/75 dark:text-sky-100/75">
+                Editando campo: <span className="font-semibold">{newField.label}</span>
+              </p>
+            )}
 
             <div className="mb-4 grid gap-2 md:grid-cols-3">
               <input
@@ -753,14 +792,26 @@ export default function QuotesConfigPage() {
                 />
               </div>
               <div className="md:col-span-3">
-                <button
-                  type="button"
-                  className={BTN}
-                  onClick={addCustomField}
-                  disabled={!canEdit}
-                >
-                  Agregar campo
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className={BTN}
+                    onClick={upsertCustomField}
+                    disabled={!canEdit}
+                  >
+                    {editingCustomFieldKey ? "Guardar cambios" : "Agregar campo"}
+                  </button>
+                  {editingCustomFieldKey && (
+                    <button
+                      type="button"
+                      className={SUBTLE_BTN}
+                      onClick={resetCustomFieldForm}
+                      disabled={!canEdit}
+                    >
+                      Cancelar edición
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -794,10 +845,10 @@ export default function QuotesConfigPage() {
                       <button
                         type="button"
                         className={SUBTLE_BTN}
-                        onClick={() => toggleCustomFieldRequired(field.key)}
+                        onClick={() => startEditingCustomField(field)}
                         disabled={!canEdit}
                       >
-                        {field.required ? "Obligatorio" : "Opcional"}
+                        Editar
                       </button>
                       <button
                         type="button"
