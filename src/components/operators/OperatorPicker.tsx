@@ -8,9 +8,12 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import type { Operator } from "@/types";
 
-type OperatorOption = Pick<Operator, "id_operator" | "agency_operator_id" | "name">;
+type OperatorOption = {
+  id_operator: number;
+  agency_operator_id?: number | null;
+  name?: string | null;
+};
 
 type OperatorPickerProps = {
   operators: OperatorOption[];
@@ -22,6 +25,8 @@ type OperatorPickerProps = {
   required?: boolean;
   hideSelectedSummary?: boolean;
   className?: string;
+  inputId?: string;
+  ariaLabel?: string;
 };
 
 const normalizeText = (value: string) =>
@@ -59,6 +64,8 @@ export default function OperatorPicker({
   required = false,
   hideSelectedSummary = false,
   className = "",
+  inputId,
+  ariaLabel,
 }: OperatorPickerProps) {
   const [term, setTerm] = useState("");
   const [selected, setSelected] = useState<OperatorOption | null>(null);
@@ -194,9 +201,11 @@ export default function OperatorPicker({
     <div ref={rootRef} className={`relative ${className}`}>
       <div className="flex items-center gap-2">
         <input
+          id={inputId}
           type="text"
           role="combobox"
           aria-autocomplete="list"
+          aria-label={ariaLabel}
           aria-expanded={open}
           aria-controls={listboxId}
           value={term}

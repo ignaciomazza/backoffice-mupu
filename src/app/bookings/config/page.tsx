@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Spinner from "@/components/Spinner";
+import OperatorPicker from "@/components/operators/OperatorPicker";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useAuth } from "@/context/AuthContext";
@@ -2162,24 +2163,29 @@ export default function BookingsConfigPage() {
                     </div>
                     <div>
                       <Label>Operador</Label>
-                      <select
-                        value={presetForm.operator_id ?? 0}
-                        onChange={(e) =>
+                      <OperatorPicker
+                        inputId="preset_operator_id"
+                        operators={operators}
+                        valueId={presetForm.operator_id ?? null}
+                        onSelect={(operator) =>
                           setPresetForm((prev) => ({
                             ...prev,
-                            operator_id: Number(e.target.value) || null,
+                            operator_id: operator.id_operator,
+                          }))
+                        }
+                        onClear={() =>
+                          setPresetForm((prev) => ({
+                            ...prev,
+                            operator_id: null,
                           }))
                         }
                         disabled={!canEdit}
-                        className="w-full cursor-pointer appearance-none rounded-3xl border border-white/30 bg-white/10 px-4 py-2 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10"
-                      >
-                        <option value={0}>Sin operador</option>
-                        {operators.map((op) => (
-                          <option key={op.id_operator} value={op.id_operator}>
-                            {op.name}
-                          </option>
-                        ))}
-                      </select>
+                        placeholder={
+                          operators.length
+                            ? "Buscar operador por nombre o número..."
+                            : "Sin operadores"
+                        }
+                      />
                     </div>
                     <div>
                       <Label>Moneda</Label>

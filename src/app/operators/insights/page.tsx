@@ -16,6 +16,7 @@ import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import { responseErrorMessage } from "@/utils/httpError";
 import { useAgencyOperators } from "@/hooks/receipts/useAgencyOperators";
+import OperatorPicker from "@/components/operators/OperatorPicker";
 
 type PeriodType = "day" | "week" | "month" | "quarter" | "semester" | "year";
 type DateMode = "creation" | "travel";
@@ -858,24 +859,26 @@ export default function OperatorInsightsPage() {
                     <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                       Operador
                     </label>
-                    <select
-                      value={selectedOperatorId}
-                      onChange={(event) => {
-                        const val = event.target.value;
-                        setSelectedOperatorId(val ? Number(val) : "");
-                      }}
-                      className="w-full rounded-2xl border border-white/20 bg-white/80 px-4 py-2 text-sm shadow-sm outline-none transition focus:border-sky-300 dark:bg-slate-900/60"
-                    >
-                      {operators.length === 0 ? (
-                        <option value="">Sin operadores</option>
-                      ) : null}
-                      {operators.map((op) => (
-                        <option key={op.id_operator} value={op.id_operator}>
-                          {op.name ||
-                            `Operador ${op.agency_operator_id ?? op.id_operator}`}
-                        </option>
-                      ))}
-                    </select>
+                    <OperatorPicker
+                      operators={operators}
+                      valueId={
+                        typeof selectedOperatorId === "number"
+                          ? selectedOperatorId
+                          : null
+                      }
+                      onSelect={(operator) =>
+                        setSelectedOperatorId(operator.id_operator)
+                      }
+                      onClear={() => setSelectedOperatorId("")}
+                      disabled={operators.length === 0}
+                      placeholder={
+                        operators.length
+                          ? "Buscar operador por nombre o número..."
+                          : "Sin operadores"
+                      }
+                      hideSelectedSummary
+                      ariaLabel="Operador"
+                    />
                   </div>
 
                   <div className="space-y-2">

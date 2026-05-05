@@ -21,6 +21,7 @@ import ClientPicker from "@/components/clients/ClientPicker";
 import DestinationPicker, {
   DestinationOption,
 } from "@/components/DestinationPicker";
+import OperatorPicker from "@/components/operators/OperatorPicker";
 import type { Client, ClientCustomField, ClientProfileConfig } from "@/types";
 import type {
   ClientPayment,
@@ -5217,36 +5218,30 @@ export default function GroupDetailPage() {
                     <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                       <label className="flex flex-col gap-1 text-sm">
                         Operador
-                        <select
-                          value={inventoryDraft.operator_id}
-                          onChange={(e) => {
-                            const nextId = e.target.value;
-                            const selected = operatorOptions.find(
-                              (item) => String(item.id_operator) === nextId,
-                            );
+                        <OperatorPicker
+                          inputId="inventory_operator_id"
+                          operators={operatorOptions}
+                          valueId={Number(inventoryDraft.operator_id) || null}
+                          onSelect={(operator) => {
                             setInventoryDraft((prev) => ({
                               ...prev,
-                              operator_id: nextId,
-                              provider: selected?.name || prev.provider,
+                              operator_id: String(operator.id_operator),
+                              provider: operator.name || prev.provider,
                             }));
                           }}
+                          onClear={() =>
+                            setInventoryDraft((prev) => ({
+                              ...prev,
+                              operator_id: "",
+                            }))
+                          }
                           disabled={submitting}
-                          className={FIELD_INPUT_CLASS}
-                        >
-                          <option value="">
-                            {operatorOptions.length > 0
-                              ? "Seleccionar operador"
-                              : "Sin operadores disponibles"}
-                          </option>
-                          {operatorOptions.map((operator) => (
-                            <option
-                              key={operator.id_operator}
-                              value={operator.id_operator}
-                            >
-                              {operator.name}
-                            </option>
-                          ))}
-                        </select>
+                          placeholder={
+                            operatorOptions.length > 0
+                              ? "Buscar operador por nombre o número..."
+                              : "Sin operadores disponibles"
+                          }
+                        />
                       </label>
                       <label className="flex flex-col gap-1 text-sm">
                         Cupos comprados

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Spinner from "@/components/Spinner";
+import OperatorPicker from "@/components/operators/OperatorPicker";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
@@ -1650,30 +1651,27 @@ export default function OtherIncomesPage() {
                       {formCategoryRequiresOperator && (
                         <label className="flex flex-col gap-1 text-sm">
                           Operador
-                          <select
-                            className="rounded-xl border border-white/30 bg-white/60 px-3 py-2 text-sm shadow-inner outline-none dark:bg-zinc-900/50"
-                            value={form.operator_id}
-                            onChange={(e) =>
+                          <OperatorPicker
+                            operators={operators}
+                            valueId={Number(form.operator_id) || null}
+                            onSelect={(operator) =>
                               setForm((prev) => ({
                                 ...prev,
-                                operator_id: e.target.value,
+                                operator_id: String(operator.id_operator),
                               }))
                             }
-                          >
-                            <option value="">
-                              {operators.length
-                                ? "Seleccionar operador..."
-                                : "Sin operadores"}
-                            </option>
-                            {operators.map((op) => (
-                              <option
-                                key={op.id_operator}
-                                value={String(op.id_operator)}
-                              >
-                                {op.name}
-                              </option>
-                            ))}
-                          </select>
+                            onClear={() =>
+                              setForm((prev) => ({
+                                ...prev,
+                                operator_id: "",
+                              }))
+                            }
+                            placeholder={
+                              operators.length
+                                ? "Buscar operador por nombre o número..."
+                                : "Sin operadores"
+                            }
+                          />
                         </label>
                       )}
                     </div>
@@ -2314,30 +2312,27 @@ export default function OtherIncomesPage() {
                   {editCategoryRequiresOperator && (
                     <label className="flex flex-col gap-1 text-sm">
                       Operador
-                      <select
-                        className="rounded-xl border border-white/30 bg-white/60 px-3 py-2 text-sm shadow-inner outline-none dark:bg-zinc-900/50"
-                        value={editForm.operator_id}
-                        onChange={(e) =>
+                      <OperatorPicker
+                        operators={operators}
+                        valueId={Number(editForm.operator_id) || null}
+                        onSelect={(operator) =>
                           setEditForm((prev) => ({
                             ...prev,
-                            operator_id: e.target.value,
+                            operator_id: String(operator.id_operator),
                           }))
                         }
-                      >
-                        <option value="">
-                          {operators.length
-                            ? "Seleccionar operador..."
-                            : "Sin operadores"}
-                        </option>
-                        {operators.map((op) => (
-                          <option
-                            key={op.id_operator}
-                            value={String(op.id_operator)}
-                          >
-                            {op.name}
-                          </option>
-                        ))}
-                      </select>
+                        onClear={() =>
+                          setEditForm((prev) => ({
+                            ...prev,
+                            operator_id: "",
+                          }))
+                        }
+                        placeholder={
+                          operators.length
+                            ? "Buscar operador por nombre o número..."
+                            : "Sin operadores"
+                        }
+                      />
                     </label>
                   )}
                 </div>

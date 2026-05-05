@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import Spinner from "@/components/Spinner";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
 import ClientPicker from "@/components/clients/ClientPicker";
+import OperatorPicker from "@/components/operators/OperatorPicker";
 import type { Client, Operator } from "@/types";
 
 /* =========================
@@ -486,26 +487,19 @@ export default function CreateAccountForm({
                     label="Operador"
                     hint="Obligatorio en modo Operador."
                   >
-                    <select
-                      id="id_operator"
-                      value={operatorId || 0}
-                      onChange={(e) =>
-                        setOperatorId(Number(e.target.value) || 0)
-                      }
-                      className={`${inputBase} cursor-pointer appearance-none`}
+                    <OperatorPicker
+                      inputId="id_operator"
+                      operators={operators}
+                      valueId={operatorId || null}
+                      onSelect={(operator) => setOperatorId(operator.id_operator)}
+                      onClear={() => setOperatorId(0)}
                       disabled={operators.length === 0}
-                    >
-                      <option value={0}>
-                        {operators.length
-                          ? "Seleccioná un operador"
-                          : "Sin operadores"}
-                      </option>
-                      {operators.map((op) => (
-                        <option key={op.id_operator} value={op.id_operator}>
-                          {op.name}
-                        </option>
-                      ))}
-                    </select>
+                      placeholder={
+                        operators.length
+                          ? "Buscar operador por nombre o número..."
+                          : "Sin operadores"
+                      }
+                    />
                     {errors.subject && (
                       <p className="mt-1 text-xs text-red-600 dark:text-red-500/90">
                         {errors.subject}

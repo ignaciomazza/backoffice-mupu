@@ -21,6 +21,7 @@ import ClientPicker from "@/components/clients/ClientPicker";
 import DestinationPicker, {
   type DestinationOption,
 } from "@/components/DestinationPicker";
+import OperatorPicker from "@/components/operators/OperatorPicker";
 import QuoteDestinationPicker from "@/components/quotes/QuoteDestinationPicker";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
@@ -3319,48 +3320,31 @@ export default function QuotesPage() {
                               <label className="mb-1 block text-xs opacity-75">
                                 Operador
                               </label>
-                              <select
-                                className={SELECT}
-                                value={
+                              <OperatorPicker
+                                operators={operators}
+                                valueId={
                                   typeof s.operator_id === "number" &&
                                   Number.isFinite(s.operator_id)
-                                    ? String(s.operator_id)
-                                    : ""
+                                    ? s.operator_id
+                                    : null
                                 }
                                 disabled={loadingOperators}
-                                onChange={(e) =>
+                                onSelect={(operator) =>
                                   updateServiceDraft(idx, {
-                                    operator_id: e.target.value
-                                      ? Number(e.target.value)
-                                      : null,
+                                    operator_id: operator.id_operator,
                                   })
                                 }
-                              >
-                                <option value="">
-                                  {loadingOperators
+                                onClear={() =>
+                                  updateServiceDraft(idx, {
+                                    operator_id: null,
+                                  })
+                                }
+                                placeholder={
+                                  loadingOperators
                                     ? "Cargando operadores..."
-                                    : "Seleccionar operador"}
-                                </option>
-                                {operators.map((operator) => (
-                                  <option
-                                    key={operator.id_operator}
-                                    value={operator.id_operator}
-                                  >
-                                    {operator.name || "Operador"}
-                                  </option>
-                                ))}
-                                {typeof s.operator_id === "number" &&
-                                Number.isFinite(s.operator_id) &&
-                                s.operator_id > 0 &&
-                                !operators.some(
-                                  (operator) =>
-                                    operator.id_operator === s.operator_id,
-                                ) ? (
-                                  <option value={s.operator_id}>
-                                    Operador sin número interno (no listado)
-                                  </option>
-                                ) : null}
-                              </select>
+                                    : "Buscar operador por nombre o número..."
+                                }
+                              />
                             </div>
                             <div>
                               <label className="mb-1 block text-xs opacity-75">
@@ -5896,55 +5880,32 @@ export default function QuotesPage() {
                                 Operador
                                 <RequiredMark />
                               </label>
-                              <select
-                                className={convertInputClass(
-                                  `services.${idx}.operator_id`,
-                                  SELECT,
-                                )}
-                                value={
+                              <OperatorPicker
+                                operators={operators}
+                                valueId={
                                   typeof s.operator_id === "number" &&
                                   Number.isFinite(s.operator_id)
-                                    ? String(s.operator_id)
-                                    : ""
+                                    ? s.operator_id
+                                    : null
                                 }
                                 required
                                 disabled={loadingOperators}
-                                onChange={(e) =>
+                                onSelect={(operator) =>
                                   updateConvertService(idx, {
-                                    operator_id: e.target.value
-                                      ? Number(e.target.value)
-                                      : null,
+                                    operator_id: operator.id_operator,
                                   })
                                 }
-                              >
-                                <option value="">
-                                  {loadingOperators
+                                onClear={() =>
+                                  updateConvertService(idx, {
+                                    operator_id: null,
+                                  })
+                                }
+                                placeholder={
+                                  loadingOperators
                                     ? "Cargando operadores..."
-                                    : "Seleccionar operador"}
-                                </option>
-                                {operators.map((operator) => (
-                                  <option
-                                    key={operator.id_operator}
-                                    value={operator.id_operator}
-                                  >
-                                    {operator.name || "Operador"}{" "}
-                                    {operator.agency_operator_id
-                                      ? `· ${operator.agency_operator_id}`
-                                      : "· Sin número interno"}
-                                  </option>
-                                ))}
-                                {typeof s.operator_id === "number" &&
-                                Number.isFinite(s.operator_id) &&
-                                s.operator_id > 0 &&
-                                !operators.some(
-                                  (operator) =>
-                                    operator.id_operator === s.operator_id,
-                                ) ? (
-                                  <option value={s.operator_id}>
-                                    Operador sin número interno (no listado)
-                                  </option>
-                                ) : null}
-                              </select>
+                                    : "Buscar operador por nombre o número..."
+                                }
+                              />
                             </div>
                             <div>
                               <label

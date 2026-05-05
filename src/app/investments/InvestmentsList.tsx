@@ -5,6 +5,7 @@ import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import Link from "next/link";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
+import OperatorPicker from "@/components/operators/OperatorPicker";
 import ExportSheetButton from "@/components/ui/ExportSheetButton";
 import { authFetch } from "@/utils/authFetch";
 import type { Investment, Operator } from "./types";
@@ -784,22 +785,21 @@ export default function InvestmentsList({
           </select>
 
           {showOperatorFilter && (
-            <select
-              className={compactFilterControlClass}
-              value={operatorFilter}
-              onChange={(e) => setOperatorFilter(Number(e.target.value))}
+            <OperatorPicker
+              className="min-w-[230px] flex-1 sm:flex-none"
+              operators={operators}
+              valueId={operatorFilter || null}
+              onSelect={(operator) => setOperatorFilter(operator.id_operator)}
+              onClear={() => setOperatorFilter(0)}
               disabled={operators.length === 0}
-              aria-label="Filtrar por operador"
-            >
-              <option value={0}>
-                {operators.length ? "Operador (todos)" : "Sin operadores"}
-              </option>
-              {operators.map((o) => (
-                <option key={o.id_operator} value={o.id_operator}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
+              placeholder={
+                operators.length
+                  ? "Operador (todos)"
+                  : "Sin operadores"
+              }
+              hideSelectedSummary
+              ariaLabel="Filtrar por operador"
+            />
           )}
 
           {showOperatorMode && (

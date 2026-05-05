@@ -11,6 +11,7 @@ import {
 } from "@/components/groups/finance/contextTypes";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
+import OperatorPicker from "@/components/operators/OperatorPicker";
 import { authFetch } from "@/utils/authFetch";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
 import { parseAmountInput } from "@/utils/receipts/receiptForm";
@@ -2746,24 +2747,20 @@ export default function GroupOperatorPaymentForm({
                   </Field>
 
                   <Field id="operator" label="Operador" required>
-                    <select
-                      id="operator"
-                      value={selectedOperatorId ?? ""}
-                      onChange={(e) =>
-                        setOperatorId(toPositiveInt(e.target.value) ?? "")
-                      }
-                      className={`${inputBase} cursor-pointer appearance-none`}
+                    <OperatorPicker
+                      inputId="operator"
+                      operators={operators}
+                      valueId={selectedOperatorId}
+                      onSelect={(operator) => setOperatorId(operator.id_operator)}
+                      onClear={() => setOperatorId("")}
                       required
-                    >
-                      <option value="" disabled>
-                        Seleccionar operador…
-                      </option>
-                      {operators.map((o) => (
-                        <option key={o.id_operator} value={o.id_operator}>
-                          {o.name}
-                        </option>
-                      ))}
-                    </select>
+                      disabled={operators.length === 0}
+                      placeholder={
+                        operators.length
+                          ? "Buscar operador por nombre o número..."
+                          : "Sin operadores"
+                      }
+                    />
                     {selectedServices.length > 0 &&
                       operatorIdFromSelection == null && (
                         <p className="ml-1 mt-1 text-xs text-slate-600 dark:text-slate-400">

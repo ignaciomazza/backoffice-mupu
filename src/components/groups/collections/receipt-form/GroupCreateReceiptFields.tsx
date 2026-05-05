@@ -3,6 +3,7 @@
 
 import React from "react";
 import ClientPicker from "@/components/clients/ClientPicker";
+import OperatorPicker from "@/components/operators/OperatorPicker";
 import type {
   CurrencyCode,
   FinanceAccount,
@@ -491,28 +492,23 @@ export default function GroupCreateReceiptFields(props: {
                           <label className="ml-1 block text-sm font-medium text-slate-900 dark:text-slate-100">
                             Operador <span className="text-rose-600">*</span>
                           </label>
-                          <select
-                            className={`${inputBase} cursor-pointer appearance-none`}
-                            value={line.operator_id ?? ""}
-                            onChange={(e) =>
-                              setPaymentLineOperator(
-                                line.key,
-                                e.target.value ? Number(e.target.value) : null,
-                              )
+                          <OperatorPicker
+                            inputId={`payment_operator_${idx}`}
+                            operators={operators}
+                            valueId={line.operator_id ?? null}
+                            onSelect={(operator) =>
+                              setPaymentLineOperator(line.key, operator.id_operator)
+                            }
+                            onClear={() =>
+                              setPaymentLineOperator(line.key, null)
                             }
                             disabled={!operators.length}
-                          >
-                            <option value="">
-                              {operators.length
-                                ? "Seleccionar operador…"
-                                : "Sin operadores"}
-                            </option>
-                            {operators.map((o) => (
-                              <option key={o.id_operator} value={o.id_operator}>
-                                {o.name}
-                              </option>
-                            ))}
-                          </select>
+                            placeholder={
+                              operators.length
+                                ? "Buscar operador por nombre o número..."
+                                : "Sin operadores"
+                            }
+                          />
                           {errors[`payment_operator_${idx}`] && (
                             <p className="mt-1 text-xs text-red-600">
                               {errors[`payment_operator_${idx}`]}

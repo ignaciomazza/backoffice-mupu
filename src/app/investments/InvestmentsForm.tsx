@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, FormEvent, ReactNode, SetStateAction } from "react";
 import Spinner from "@/components/Spinner";
+import OperatorPicker from "@/components/operators/OperatorPicker";
 import { formatMoneyInput, shouldPreferDotDecimal } from "@/utils/moneyInput";
 import { parseAmountInput } from "@/utils/receipts/receiptForm";
 import type {
@@ -733,32 +734,30 @@ export default function InvestmentsForm({
                     required
                     className={operatorOnly ? undefined : "md:col-span-2"}
                   >
-                    <select
-                      id="operator_id"
-                      className={`${inputClass} cursor-pointer appearance-none`}
-                      value={form.operator_id ?? ""}
-                      onChange={(e) =>
+                    <OperatorPicker
+                      inputId="operator_id"
+                      operators={operators}
+                      valueId={form.operator_id ?? null}
+                      onSelect={(operator) =>
                         setForm((f) => ({
                           ...f,
-                          operator_id: e.target.value
-                            ? Number(e.target.value)
-                            : null,
+                          operator_id: operator.id_operator,
+                        }))
+                      }
+                      onClear={() =>
+                        setForm((f) => ({
+                          ...f,
+                          operator_id: null,
                         }))
                       }
                       required
                       disabled={operators.length === 0}
-                    >
-                      <option value="" disabled>
-                        {operators.length
-                          ? "Seleccionar operador…"
-                          : "Sin operadores"}
-                      </option>
-                      {operators.map((o) => (
-                        <option key={o.id_operator} value={o.id_operator}>
-                          {o.name}
-                        </option>
-                      ))}
-                    </select>
+                      placeholder={
+                        operators.length
+                          ? "Buscar operador por nombre o número..."
+                          : "Sin operadores"
+                      }
+                    />
                   </Field>
                 )}
 
@@ -1977,31 +1976,30 @@ export default function InvestmentsForm({
                     {isRecurringOperador && (
                       <div className="md:col-span-2">
                         <label className="ml-2 block">Operador</label>
-                        <select
-                          className={`${inputClass} cursor-pointer appearance-none`}
-                          value={recurringForm.operator_id ?? ""}
-                          onChange={(e) =>
+                        <OperatorPicker
+                          inputId="recurring_operator_id"
+                          operators={operators}
+                          valueId={recurringForm.operator_id ?? null}
+                          onSelect={(operator) =>
                             setRecurringForm((f) => ({
                               ...f,
-                              operator_id: e.target.value
-                                ? Number(e.target.value)
-                                : null,
+                              operator_id: operator.id_operator,
+                            }))
+                          }
+                          onClear={() =>
+                            setRecurringForm((f) => ({
+                              ...f,
+                              operator_id: null,
                             }))
                           }
                           required
                           disabled={operators.length === 0}
-                        >
-                          <option value="" disabled>
-                            {operators.length
-                              ? "Seleccionar operador…"
-                              : "Sin operadores"}
-                          </option>
-                          {operators.map((o) => (
-                            <option key={o.id_operator} value={o.id_operator}>
-                              {o.name}
-                            </option>
-                          ))}
-                        </select>
+                          placeholder={
+                            operators.length
+                              ? "Buscar operador por nombre o número..."
+                              : "Sin operadores"
+                          }
+                        />
                       </div>
                     )}
 
