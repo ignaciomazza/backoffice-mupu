@@ -2,6 +2,7 @@ import prisma from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { toDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
 import { getAfipForAgency } from "@/services/afip/afipConfig";
+import { resolveSalesPoint } from "@/services/afip/salesPoints";
 import { logBillingEvent } from "@/services/billing/events";
 
 type FiscalStatus = "ISSUED" | "FAILED" | "PENDING";
@@ -47,6 +48,11 @@ function resolveDocumentType(input?: string): string {
 function parseIntEnv(name: string, fallback: number): number {
   const parsed = Number.parseInt(String(process.env[name] || ""), 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseOptionalPositiveIntEnv(name: string): number | null {
+  const parsed = Number.parseInt(String(process.env[name] || ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function normalizeError(error: unknown): string {
@@ -98,7 +104,8 @@ async function emitWithAfip(params: {
       : charge.id_agency;
 
   const afip = await getAfipForAgency(effectiveIssuerAgencyId);
-  const ptoVta = parseIntEnv("BILLING_AFIP_PTO_VTA", 1);
+  const preferredPtoVta = parseOptionalPositiveIntEnv("BILLING_AFIP_PTO_VTA");
+  const ptoVta = await resolveSalesPoint(afip, preferredPtoVta);
   const cbteTipo = parseIntEnv("BILLING_AFIP_CBTE_TIPO", 6); // Factura B
 
   const lastVoucher = await afip.ElectronicBilling.getLastVoucher(ptoVta, cbteTipo);
