@@ -54,6 +54,9 @@ import GroupInvoiceForm, {
   type InvoiceFormData,
 } from "@/components/groups/billing/GroupInvoiceForm";
 import GroupInvoiceList from "@/components/groups/billing/GroupInvoiceList";
+import GroupFinanceSummaryPanel, {
+  type GroupFinanceSummaryPayload,
+} from "@/components/groups/finance/GroupFinanceSummaryPanel";
 import CreditNoteList from "@/components/credit-notes/CreditNoteList";
 import type { ServiceLite, SubmitResult } from "@/types/receipts";
 import {
@@ -718,13 +721,19 @@ const FLAT_NOTE_CLASS =
   "border-l-2 border-slate-300/80 pl-3 py-1 text-xs text-slate-700 dark:border-sky-600/40 dark:text-slate-300";
 const FLAT_WARN_CLASS =
   "border-l-2 border-amber-400/80 pl-3 py-1 text-xs text-amber-900 dark:border-amber-500/70 dark:text-amber-200";
-type SectionFilterKey = "GRUPAL" | "COBROS" | "PAGOS" | "FACTURACION";
+type SectionFilterKey =
+  | "RESUMEN"
+  | "GRUPAL"
+  | "COBROS"
+  | "PAGOS"
+  | "FACTURACION";
 
 const SECTION_FILTERS: ReadonlyArray<{
   id: SectionFilterKey;
   label: string;
   tone: "sky" | "emerald" | "amber";
 }> = [
+  { id: "RESUMEN", label: "Resumen", tone: "sky" },
   { id: "GRUPAL", label: "Grupal", tone: "emerald" },
   { id: "COBROS", label: "Cobros", tone: "sky" },
   { id: "PAGOS", label: "Pagos", tone: "amber" },
@@ -1594,7 +1603,13 @@ export default function GroupDetailPage() {
     defaultInventoryDraft(undefined, { defaultTransferFeePct: 2.4 }),
   );
   const [sectionFilter, setSectionFilter] =
-    useState<SectionFilterKey>("GRUPAL");
+    useState<SectionFilterKey>("RESUMEN");
+  const [summaryData, setSummaryData] =
+    useState<GroupFinanceSummaryPayload | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryLoadingError, setSummaryLoadingError] = useState<string | null>(
+    null,
+  );
   const [collectContext, setCollectContext] =
     useState<GroupFinanceContextPayload | null>(null);
   const [collectClientPayments, setCollectClientPayments] = useState<
@@ -1970,6 +1985,44 @@ export default function GroupDetailPage() {
   ]);
 
   const selectedPaymentsScope = selectedFinanceScope;
+  const activeSummaryScopeKey = !group
+    ? null
+    : selectedFinanceScope?.departureId != null
+      ? selectedFinanceScope.key
+      : "all";
+
+  const fetchSummaryData = useCallback(async () => {
+    if (!activeSummaryScopeKey) return;
+    setSummaryLoading(true);
+    setSummaryLoadingError(null);
+    setSummaryData(null);
+    try {
+      const query = `?scope=${encodeURIComponent(activeSummaryScopeKey)}`;
+      const payload = await requestGroupApi<GroupFinanceSummaryPayload>(
+        `/api/groups/${encodeURIComponent(groupId)}/finance/summary${query}`,
+        {
+          credentials: "include",
+          cache: "no-store",
+        },
+        "No pudimos cargar el resumen financiero de la grupal.",
+      );
+      setSummaryData(payload);
+    } catch (error) {
+      const msg =
+        error instanceof Error
+          ? error.message
+          : "No pudimos cargar el resumen financiero.";
+      setSummaryData(null);
+      setSummaryLoadingError(msg);
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, [activeSummaryScopeKey, groupId]);
+
+  useEffect(() => {
+    if (sectionFilter !== "RESUMEN") return;
+    void fetchSummaryData();
+  }, [fetchSummaryData, sectionFilter]);
 
   useEffect(() => {
     if (sortedDepartures.length === 0) {
@@ -3317,6 +3370,7 @@ export default function GroupDetailPage() {
     selectedFinanceInvoicePassenger?.client?.dni_number,
   ]);
 
+  const showSummaryPanel = sectionFilter === "RESUMEN";
   const showGroupPanels = sectionFilter === "GRUPAL";
   const showCobrosPanels = sectionFilter === "COBROS";
   const showPagosPanels = sectionFilter === "PAGOS";
@@ -4376,6 +4430,14 @@ export default function GroupDetailPage() {
             ) : null}
           </div>
         </nav>
+
+        {showSummaryPanel ? (
+          <GroupFinanceSummaryPanel
+            data={summaryData}
+            loading={summaryLoading}
+            error={summaryLoadingError}
+          />
+        ) : null}
 
         {showGroupPanels && isSingleDepartureMode ? (
           <>
