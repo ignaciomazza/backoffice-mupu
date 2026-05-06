@@ -15,6 +15,10 @@ import {
 } from "@/utils/permissions";
 import { hasSchemaColumn } from "@/lib/schemaColumns";
 import { extractReceiptServiceSelectionModeFromBookingAccessRules } from "@/utils/receiptServiceSelection";
+import {
+  DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+  normalizeReceiptAdjustmentLabel,
+} from "@/utils/receipts/paymentAdjustments";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -44,6 +48,7 @@ type ReceiptPaymentOut = {
   fee_mode?: ReceiptFeeMode | null;
   fee_value?: number | null;
   fee_amount?: number | null;
+  fee_label?: string | null;
   payment_method_text?: string;
   account_text?: string;
 };
@@ -56,6 +61,7 @@ type ReceiptPaymentLineIn = {
   fee_mode?: unknown;
   fee_value?: unknown;
   fee_amount?: unknown;
+  fee_label?: unknown;
   operator_id?: unknown;
 };
 
@@ -67,6 +73,7 @@ type ReceiptPaymentLineNormalized = {
   fee_mode?: ReceiptFeeMode;
   fee_value?: number;
   fee_amount?: number;
+  fee_label?: string;
   operator_id?: number;
 }; 
 
@@ -101,6 +108,7 @@ type ReceiptSchemaFlags = {
   hasPaymentFeeMode: boolean;
   hasPaymentFeeValue: boolean;
   hasPaymentFeeAmount: boolean;
+  hasPaymentFeeLabel: boolean;
 };
 
 async function getReceiptSchemaFlags(): Promise<ReceiptSchemaFlags> {
@@ -110,12 +118,14 @@ async function getReceiptSchemaFlags(): Promise<ReceiptSchemaFlags> {
     hasPaymentFeeMode,
     hasPaymentFeeValue,
     hasPaymentFeeAmount,
+    hasPaymentFeeLabel,
   ] = await Promise.all([
     hasSchemaColumn("ReceiptPayment", "id_receipt_payment"),
     hasSchemaColumn("ReceiptPayment", "payment_currency"),
     hasSchemaColumn("ReceiptPayment", "fee_mode"),
     hasSchemaColumn("ReceiptPayment", "fee_value"),
     hasSchemaColumn("ReceiptPayment", "fee_amount"),
+    hasSchemaColumn("ReceiptPayment", "fee_label"),
   ]);
 
   return {
@@ -124,6 +134,7 @@ async function getReceiptSchemaFlags(): Promise<ReceiptSchemaFlags> {
     hasPaymentFeeMode,
     hasPaymentFeeValue,
     hasPaymentFeeAmount,
+    hasPaymentFeeLabel,
   };
 }
 
@@ -139,6 +150,7 @@ function buildReceiptPaymentSelect(
     ...(flags.hasPaymentFeeMode ? { fee_mode: true } : {}),
     ...(flags.hasPaymentFeeValue ? { fee_value: true } : {}),
     ...(flags.hasPaymentFeeAmount ? { fee_amount: true } : {}),
+    ...(flags.hasPaymentFeeLabel ? { fee_label: true } : {}),
   };
 }
 
@@ -433,6 +445,12 @@ function normalizePaymentsFromReceipt(r: unknown): ReceiptPaymentOut[] {
       const pay = (p ?? {}) as Record<string, unknown>;
       const feeValueRaw = toNum(pay.fee_value);
       const feeAmountRaw = toNum(pay.fee_amount);
+      const feeLabel =
+        Number.isFinite(feeAmountRaw) && feeAmountRaw > 0
+          ? normalizeReceiptAdjustmentLabel(
+              pay.fee_label ?? DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+            )
+          : null;
       return {
         amount: Number(pay.amount ?? 0),
         payment_method_id:
@@ -450,6 +468,7 @@ function normalizePaymentsFromReceipt(r: unknown): ReceiptPaymentOut[] {
         fee_mode: normalizeReceiptFeeMode(pay.fee_mode),
         fee_value: Number.isFinite(feeValueRaw) ? feeValueRaw : null,
         fee_amount: Number.isFinite(feeAmountRaw) ? feeAmountRaw : null,
+        fee_label: feeLabel,
       };
     });
   }
@@ -1708,6 +1727,12 @@ export default async function handler(
               ? feeAmountRaw
               : undefined,
           });
+          const feeLabel =
+            (normalizedFee.fee_amount ?? 0) > 0
+              ? normalizeReceiptAdjustmentLabel(
+                  p.fee_label ?? DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+                )
+              : undefined;
           return {
             amount: amountValue,
             payment_method_id: Number(p.payment_method_id),
@@ -1718,6 +1743,7 @@ export default async function handler(
             fee_mode: normalizedFee.fee_mode,
             fee_value: normalizedFee.fee_value,
             fee_amount: normalizedFee.fee_amount,
+            fee_label: feeLabel,
             operator_id: toOptionalId(p.operator_id),
           };
         });
@@ -2191,6 +2217,14 @@ export default async function handler(
                       fee_amount:
                         p.fee_amount != null
                           ? new Prisma.Decimal(Number(p.fee_amount))
+                          : null,
+                    }
+                  : {}),
+                ...(schemaFlags.hasPaymentFeeLabel
+                  ? {
+                      fee_label:
+                        p.fee_amount && p.fee_amount > 0
+                          ? p.fee_label ?? null
                           : null,
                     }
                   : {}),

@@ -604,6 +604,7 @@ export default async function handler(
           amount: line.amount,
           payment_currency: line.payment_currency,
           fee_amount: line.fee_amount,
+          fee_label: line.fee_label ?? null,
           payment_method_id: line.payment_method_id ?? null,
           account_id: line.account_id ?? null,
           payment_method_text: paymentMethodText,

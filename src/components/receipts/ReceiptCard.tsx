@@ -466,6 +466,7 @@ export default function ReceiptCard({
         fee_mode: "FIXED" | "PERCENT" | undefined;
         fee_value?: number;
         fee_amount?: number;
+        fee_label?: string;
       };
 
       const sourcePayments = Array.isArray(source.payments)
@@ -502,6 +503,9 @@ export default function ReceiptCard({
                 : undefined,
             ...(Number.isFinite(feeValue) ? { fee_value: feeValue } : {}),
             ...(Number.isFinite(feeAmount) ? { fee_amount: feeAmount } : {}),
+            ...(typeof payment.fee_label === "string" && payment.fee_label.trim()
+              ? { fee_label: payment.fee_label.trim() }
+              : {}),
           };
         })
         .filter(
@@ -683,7 +687,7 @@ export default function ReceiptCard({
 
   const paymentFeeCard = hasPaymentFee ? (
     <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
-      <p className="text-xs opacity-70">Costo financiero método</p>
+      <p className="text-xs opacity-70">Ajustes del cobro</p>
       <p className="text-sm font-medium tabular-nums">
         {fmtMoney(
           receipt.payment_fee_amount,

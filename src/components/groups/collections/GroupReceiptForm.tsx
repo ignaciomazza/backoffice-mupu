@@ -34,6 +34,10 @@ import {
 } from "@/utils/receipts/receiptForm";
 import { formatMoneyInput } from "@/utils/moneyInput";
 import { filterAccountsByCurrency } from "@/utils/receipts/accounts";
+import {
+  DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+  normalizeReceiptAdjustmentLabel,
+} from "@/utils/receipts/paymentAdjustments";
 import type { GroupFinanceContextOption } from "@/components/groups/finance/contextTypes";
 
 import { useFinancePicks } from "@/hooks/receipts/useFinancePicks";
@@ -81,6 +85,7 @@ type PaymentDraft = {
   payment_currency: string;
   fee_mode: "NONE" | ReceiptPaymentFeeMode;
   fee_value: string;
+  fee_label: string;
 
   // crédito operador
   operator_id: number | null;
@@ -602,6 +607,9 @@ export default function GroupReceiptForm({
                 initialFeeAmount > 0
               ? String(initialFeeAmount)
               : "",
+        fee_label: normalizeReceiptAdjustmentLabel(
+          p.fee_label ?? DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+        ),
         operator_id: p.operator_id ?? null,
         credit_account_id: p.credit_account_id ?? null,
       }));
@@ -622,6 +630,7 @@ export default function GroupReceiptForm({
           initialFeeAmount != null && initialFeeAmount > 0
             ? String(initialFeeAmount)
             : "",
+        fee_label: DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
         operator_id: null,
         credit_account_id: null,
       },
@@ -737,6 +746,7 @@ export default function GroupReceiptForm({
         ),
         fee_mode: "NONE",
         fee_value: "",
+        fee_label: DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
         operator_id: null,
         credit_account_id: null,
       },
@@ -777,6 +787,10 @@ export default function GroupReceiptForm({
               ...l,
               fee_mode: mode,
               fee_value: mode === "NONE" ? "" : l.fee_value || "",
+              fee_label:
+                mode === "NONE"
+                  ? l.fee_label || DEFAULT_RECEIPT_ADJUSTMENT_LABEL
+                  : normalizeReceiptAdjustmentLabel(l.fee_label),
             }
           : l,
       ),
@@ -786,6 +800,16 @@ export default function GroupReceiptForm({
   const setPaymentLineFeeValue = (key: string, value: string) => {
     setPaymentLines((prev) =>
       prev.map((l) => (l.key === key ? { ...l, fee_value: value } : l)),
+    );
+  };
+
+  const setPaymentLineFeeLabel = (key: string, value: string) => {
+    setPaymentLines((prev) =>
+      prev.map((l) =>
+        l.key === key
+          ? { ...l, fee_label: normalizeReceiptAdjustmentLabel(value) }
+          : l,
+      ),
     );
   };
 
@@ -1042,6 +1066,7 @@ export default function GroupReceiptForm({
             ),
             fee_mode: "NONE",
             fee_value: "",
+            fee_label: DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
             operator_id: null,
             credit_account_id: null,
           },
@@ -1063,6 +1088,8 @@ export default function GroupReceiptForm({
           ? {
               fee_mode: "FIXED" as const,
               fee_value: formatMoneyInput(String(suggestions.fee), lineCurrency),
+              fee_label:
+                next[lastIdx].fee_label || DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
             }
           : {}),
       };
@@ -1626,11 +1653,11 @@ export default function GroupReceiptForm({
         if (l.fee_mode !== "NONE") {
           const fv = parseAmountInput(l.fee_value);
           if (fv == null || fv < 0) {
-            e[`payment_fee_value_${idx}`] = "Costo financiero inválido.";
+            e[`payment_fee_value_${idx}`] = "Ajuste del cobro inválido.";
           }
           if (l.fee_mode === "PERCENT" && fv != null && fv > 1000) {
             e[`payment_fee_value_${idx}`] =
-              "El porcentaje de costo financiero es muy alto.";
+              "El porcentaje del ajuste es muy alto.";
           }
         }
 
@@ -1798,6 +1825,10 @@ export default function GroupReceiptForm({
               ? (feeValue ?? 0)
               : undefined,
           fee_amount: feeAmount > 0 ? feeAmount : undefined,
+          fee_label:
+            feeAmount > 0
+              ? normalizeReceiptAdjustmentLabel(l.fee_label)
+              : undefined,
           operator_id: l.operator_id ?? null,
           credit_account_id: l.credit_account_id ?? null,
         };
@@ -2178,6 +2209,7 @@ export default function GroupReceiptForm({
                   setPaymentLineCurrency={setPaymentLineCurrency}
                   setPaymentLineFeeMode={setPaymentLineFeeMode}
                   setPaymentLineFeeValue={setPaymentLineFeeValue}
+                  setPaymentLineFeeLabel={setPaymentLineFeeLabel}
                   getPaymentLineFee={(key) => paymentLineFeeByKey[key] ?? 0}
                   getPaymentLineImpact={(key) =>
                     paymentLineImpactByKey[key] ?? 0

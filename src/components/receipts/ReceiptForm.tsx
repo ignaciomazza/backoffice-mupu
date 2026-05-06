@@ -41,6 +41,10 @@ import {
   normalizeReceiptPdfManualItems,
 } from "@/utils/receipts/pdfItemsPayload";
 import {
+  DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+  normalizeReceiptAdjustmentLabel,
+} from "@/utils/receipts/paymentAdjustments";
+import {
   type ReceiptServiceSelectionMode,
   normalizeReceiptServiceSelectionMode,
 } from "@/utils/receiptServiceSelection";
@@ -122,6 +126,7 @@ type PaymentDraft = {
   payment_currency: string;
   fee_mode: "NONE" | ReceiptPaymentFeeMode;
   fee_value: string;
+  fee_label: string;
 
   // crédito operador
   operator_id: number | null;
@@ -1231,6 +1236,9 @@ export default function ReceiptForm({
                 initialFeeAmount > 0
               ? String(initialFeeAmount)
               : "",
+        fee_label: normalizeReceiptAdjustmentLabel(
+          p.fee_label ?? DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+        ),
         operator_id: p.operator_id ?? null,
         client_id: p.client_id ?? null,
         client_credit_mode:
@@ -1254,6 +1262,7 @@ export default function ReceiptForm({
           initialFeeAmount != null && initialFeeAmount > 0
             ? String(initialFeeAmount)
             : "",
+        fee_label: DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
         operator_id: null,
         client_id: null,
         client_credit_mode: "DEBIT",
@@ -1408,6 +1417,7 @@ export default function ReceiptForm({
         ),
         fee_mode: "NONE",
         fee_value: "",
+        fee_label: DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
         operator_id: null,
         client_id: null,
         client_credit_mode: "DEBIT",
@@ -1450,6 +1460,10 @@ export default function ReceiptForm({
               ...l,
               fee_mode: mode,
               fee_value: mode === "NONE" ? "" : l.fee_value || "",
+              fee_label:
+                mode === "NONE"
+                  ? l.fee_label || DEFAULT_RECEIPT_ADJUSTMENT_LABEL
+                  : normalizeReceiptAdjustmentLabel(l.fee_label),
             }
           : l,
       ),
@@ -1459,6 +1473,16 @@ export default function ReceiptForm({
   const setPaymentLineFeeValue = (key: string, value: string) => {
     setPaymentLines((prev) =>
       prev.map((l) => (l.key === key ? { ...l, fee_value: value } : l)),
+    );
+  };
+
+  const setPaymentLineFeeLabel = (key: string, value: string) => {
+    setPaymentLines((prev) =>
+      prev.map((l) =>
+        l.key === key
+          ? { ...l, fee_label: normalizeReceiptAdjustmentLabel(value) }
+          : l,
+      ),
     );
   };
 
@@ -1895,6 +1919,7 @@ export default function ReceiptForm({
             ),
             fee_mode: "NONE",
             fee_value: "",
+            fee_label: DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
             operator_id: null,
             client_id: null,
             client_credit_mode: "DEBIT",
@@ -1922,6 +1947,8 @@ export default function ReceiptForm({
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               }),
+              fee_label:
+                next[lastIdx].fee_label || DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
             }
           : {}),
       };
@@ -2968,11 +2995,11 @@ export default function ReceiptForm({
         if (l.fee_mode !== "NONE") {
           const fv = parseAmountInput(l.fee_value);
           if (fv == null || fv < 0) {
-            e[`payment_fee_value_${idx}`] = "Costo financiero inválido.";
+            e[`payment_fee_value_${idx}`] = "Ajuste del cobro inválido.";
           }
           if (l.fee_mode === "PERCENT" && fv != null && fv > 1000) {
             e[`payment_fee_value_${idx}`] =
-              "El porcentaje de costo financiero es muy alto.";
+              "El porcentaje del ajuste es muy alto.";
           }
         }
 
@@ -3151,6 +3178,10 @@ export default function ReceiptForm({
               ? (feeValue ?? 0)
               : undefined,
           fee_amount: feeAmount > 0 ? feeAmount : undefined,
+          fee_label:
+            feeAmount > 0
+              ? normalizeReceiptAdjustmentLabel(l.fee_label)
+              : undefined,
           operator_id: l.operator_id ?? null,
           client_id: l.client_id ?? null,
           client_credit_mode:
@@ -3661,6 +3692,7 @@ export default function ReceiptForm({
                   setPaymentLineCurrency={setPaymentLineCurrency}
                   setPaymentLineFeeMode={setPaymentLineFeeMode}
                   setPaymentLineFeeValue={setPaymentLineFeeValue}
+                  setPaymentLineFeeLabel={setPaymentLineFeeLabel}
                   getPaymentLineFee={(key) => paymentLineFeeByKey[key] ?? 0}
                   getPaymentLineImpact={(key) =>
                     paymentLineImpactByKey[key] ?? 0

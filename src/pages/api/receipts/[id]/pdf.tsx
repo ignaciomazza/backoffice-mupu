@@ -15,6 +15,10 @@ import { decodePublicId } from "@/lib/publicIds";
 import { jwtVerify, type JWTPayload } from "jose";
 import { hasSchemaColumn } from "@/lib/schemaColumns";
 import { decodeReceiptPdfItemsPayload } from "@/utils/receipts/pdfItemsPayload";
+import {
+  DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+  normalizeReceiptAdjustmentLabel,
+} from "@/utils/receipts/paymentAdjustments";
 
 type PdfPaymentRaw = {
   amount: number;
@@ -24,6 +28,7 @@ type PdfPaymentRaw = {
   fee_mode?: "FIXED" | "PERCENT" | null;
   fee_value?: number | null;
   fee_amount?: number | null;
+  fee_label?: string | null;
   payment_method_text?: string;
   account_text?: string;
 };
@@ -44,6 +49,7 @@ type ReceiptSchemaFlags = {
   hasPaymentFeeMode: boolean;
   hasPaymentFeeValue: boolean;
   hasPaymentFeeAmount: boolean;
+  hasPaymentFeeLabel: boolean;
 };
 
 async function getReceiptSchemaFlags(): Promise<ReceiptSchemaFlags> {
@@ -53,12 +59,14 @@ async function getReceiptSchemaFlags(): Promise<ReceiptSchemaFlags> {
     hasPaymentFeeMode,
     hasPaymentFeeValue,
     hasPaymentFeeAmount,
+    hasPaymentFeeLabel,
   ] = await Promise.all([
     hasSchemaColumn("ReceiptPayment", "id_receipt_payment"),
     hasSchemaColumn("ReceiptPayment", "payment_currency"),
     hasSchemaColumn("ReceiptPayment", "fee_mode"),
     hasSchemaColumn("ReceiptPayment", "fee_value"),
     hasSchemaColumn("ReceiptPayment", "fee_amount"),
+    hasSchemaColumn("ReceiptPayment", "fee_label"),
   ]);
 
   return {
@@ -67,6 +75,7 @@ async function getReceiptSchemaFlags(): Promise<ReceiptSchemaFlags> {
     hasPaymentFeeMode,
     hasPaymentFeeValue,
     hasPaymentFeeAmount,
+    hasPaymentFeeLabel,
   };
 }
 
@@ -81,6 +90,7 @@ function buildReceiptPaymentSelect(
     ...(flags.hasPaymentFeeMode ? { fee_mode: true } : {}),
     ...(flags.hasPaymentFeeValue ? { fee_value: true } : {}),
     ...(flags.hasPaymentFeeAmount ? { fee_amount: true } : {}),
+    ...(flags.hasPaymentFeeLabel ? { fee_label: true } : {}),
   };
 }
 
@@ -245,6 +255,10 @@ function normalizePayments(receipt: ReceiptWithRelations): PdfPaymentRaw[] {
       )
         ? toNum((p as unknown as { fee_amount?: unknown }).fee_amount, 0)
         : null,
+      fee_label: normalizeReceiptAdjustmentLabel(
+        (p as unknown as { fee_label?: unknown }).fee_label ??
+          DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+      ),
     }));
   }
 
@@ -545,6 +559,12 @@ export default async function handler(
     fee_mode: p.fee_mode ?? null,
     fee_value: p.fee_value ?? null,
     fee_amount: p.fee_amount ?? null,
+    fee_label:
+      p.fee_amount != null && p.fee_amount > 0
+        ? normalizeReceiptAdjustmentLabel(
+            p.fee_label ?? DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+          )
+        : null,
     paymentMethodName:
       (p.payment_method_id
         ? methodNameById.get(p.payment_method_id)

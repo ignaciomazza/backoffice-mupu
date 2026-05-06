@@ -8,6 +8,7 @@ import ReceiptStandaloneDocument, {
   type ReceiptStandalonePdfData,
 } from "@/services/receipts/ReceiptStandaloneDocument";
 import { groupApiError } from "@/lib/groups/apiErrors";
+import { readGroupReceiptPaymentsFromMetadata } from "@/lib/groups/groupReceiptMetadata";
 import {
   parseOptionalPositiveInt,
   requireGroupFinanceContext,
@@ -35,6 +36,7 @@ type GroupReceiptPdfRow = {
   client_id: number;
   client_ids: number[] | null;
   service_refs: number[] | null;
+  metadata: Prisma.JsonValue | null;
 };
 
 type AgencyExtras = {
@@ -137,7 +139,8 @@ export default async function handler(
       r."counter_currency",
       r."client_id",
       r."client_ids",
-      r."service_refs"
+      r."service_refs",
+      r."metadata"
     FROM "TravelGroupReceipt" r
     WHERE r."id_travel_group_receipt" = ${receiptId}
       AND r."id_agency" = ${ctx.auth.id_agency}
@@ -362,19 +365,39 @@ export default async function handler(
       normalizeCurrency(receipt.amount_currency),
     paymentFeeAmount:
       receipt.payment_fee_amount == null ? 0 : toNumber(receipt.payment_fee_amount),
-    payments: [
-      {
-        amount: toNumber(receipt.amount),
-        payment_method_id: null,
-        account_id: null,
-        payment_currency: normalizeCurrency(receipt.amount_currency),
-        fee_mode: null,
-        fee_value: null,
-        fee_amount: null,
-        paymentMethodName: receipt.payment_method || undefined,
-        accountName: receipt.account || undefined,
-      },
-    ],
+    payments: (() => {
+      const storedPayments = readGroupReceiptPaymentsFromMetadata(receipt.metadata);
+      if (storedPayments.length > 0) {
+        return storedPayments.map((line) => ({
+          amount: line.amount,
+          payment_method_id: line.payment_method_id ?? null,
+          account_id: line.account_id ?? null,
+          payment_currency: normalizeCurrency(
+            line.payment_currency || receipt.amount_currency,
+          ),
+          fee_mode: line.fee_mode ?? null,
+          fee_value: line.fee_value ?? null,
+          fee_amount: line.fee_amount ?? null,
+          fee_label: line.fee_label ?? null,
+          paymentMethodName: line.payment_method || receipt.payment_method || undefined,
+          accountName: line.account || receipt.account || undefined,
+        }));
+      }
+      return [
+        {
+          amount: toNumber(receipt.amount),
+          payment_method_id: null,
+          account_id: null,
+          payment_currency: normalizeCurrency(receipt.amount_currency),
+          fee_mode: null,
+          fee_value: null,
+          fee_amount: null,
+          fee_label: null,
+          paymentMethodName: receipt.payment_method || undefined,
+          accountName: receipt.account || undefined,
+        },
+      ];
+    })(),
     services: servicesForPdf,
     base_amount:
       receipt.base_amount == null ? null : toNumber(receipt.base_amount),

@@ -12,6 +12,10 @@ import {
 } from "@react-pdf/renderer";
 import { softWrapLongWords } from "@/lib/pdfText";
 import { formatDateOnlyInBuenosAires } from "@/lib/buenosAiresDate";
+import {
+  DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+  normalizeReceiptAdjustmentLabel,
+} from "@/utils/receipts/paymentAdjustments";
 
 /** Línea de pago para el PDF */
 export type ReceiptPdfPaymentLine = {
@@ -22,6 +26,7 @@ export type ReceiptPdfPaymentLine = {
   fee_mode?: "FIXED" | "PERCENT" | null;
   fee_value?: number | null;
   fee_amount?: number | null;
+  fee_label?: string | null;
 
   // si se resolvió con lookup
   paymentMethodName?: string;
@@ -185,6 +190,26 @@ const paymentLabel = (p: ReceiptPdfPaymentLine) => {
 
   return pm;
 };
+
+const paymentAccountLabel = (p: ReceiptPdfPaymentLine) => {
+  const accountName = (p.accountName || "").trim();
+  if (accountName && accountName.toLowerCase() !== "sin cuenta") {
+    return accountName;
+  }
+  if (
+    typeof p.account_id === "number" &&
+    Number.isFinite(p.account_id) &&
+    p.account_id > 0
+  ) {
+    return `Cuenta N° ${p.account_id}`;
+  }
+  return "";
+};
+
+const paymentAdjustmentLabel = (p: ReceiptPdfPaymentLine) =>
+  normalizeReceiptAdjustmentLabel(
+    p.fee_label ?? DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+  );
 
 /* ====== Estilos ====== */
 const styles = StyleSheet.create({
@@ -537,7 +562,7 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
               {!hasBase && fee > 0 ? (
                 <Text style={styles.amountMeta}>
                   Incluye {safeFmtCurrency(amount, amount_currency)} acreditados
-                  + costo financiero {safeFmtCurrency(fee, amount_currency)}
+                  + ajustes {safeFmtCurrency(fee, amount_currency)}
                 </Text>
               ) : null}
             </View>
@@ -550,6 +575,7 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
                 safePayments.map((p, idx) => {
                   const lineCurrency =
                     (p.payment_currency || amount_currency || "ARS").toUpperCase();
+                  const accountLabel = paymentAccountLabel(p);
                   const lineFee =
                     typeof p.fee_amount === "number" && Number.isFinite(p.fee_amount)
                       ? p.fee_amount
@@ -572,7 +598,16 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
                       </View>
                       {lineFee > 0 ? (
                         <Text style={styles.payMeta}>
-                          Costo financiero: {safeFmtCurrency(lineFee, lineCurrency)}
+                          {paymentAdjustmentLabel(p)}:{" "}
+                          {safeFmtCurrency(lineFee, lineCurrency)}
+                        </Text>
+                      ) : null}
+                      {accountLabel ? (
+                        <Text style={styles.payMeta}>
+                          Cuenta:{" "}
+                          {softWrapLongWords(accountLabel, {
+                            breakChar: " ",
+                          })}
                         </Text>
                       ) : null}
                     </View>
@@ -583,7 +618,8 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
               )}
               {showLegacyGlobalFee ? (
                 <Text style={styles.payMeta}>
-                  Costo financiero: {safeFmtCurrency(fee, amount_currency)}
+                  {DEFAULT_RECEIPT_ADJUSTMENT_LABEL}:{" "}
+                  {safeFmtCurrency(fee, amount_currency)}
                 </Text>
               ) : null}
               {showPaymentDetail ? (

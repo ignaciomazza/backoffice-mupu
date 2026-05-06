@@ -1,4 +1,8 @@
 import { normalizeCurrencyCode } from "@/lib/groups/financeShared";
+import {
+  DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+  normalizeReceiptAdjustmentLabel,
+} from "@/utils/receipts/paymentAdjustments";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -40,6 +44,7 @@ export type GroupReceiptStoredPaymentLine = {
   account?: string | null;
   fee_mode?: "FIXED" | "PERCENT";
   fee_value?: number;
+  fee_label?: string | null;
 };
 
 export function normalizeGroupReceiptStoredPayments(
@@ -83,6 +88,14 @@ export function normalizeGroupReceiptStoredPayments(
       account: toOptionalString(item.account),
       fee_mode: feeMode,
       fee_value: feeValue,
+      fee_label:
+        feeAmount > 0
+          ? normalizeReceiptAdjustmentLabel(
+              item.fee_label ??
+                item.feeLabel ??
+                DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+            )
+          : null,
     });
   }
   return out;

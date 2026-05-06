@@ -13,6 +13,10 @@ import {
 import { softWrapLongWords } from "@/lib/pdfText";
 import { formatDateOnlyInBuenosAires } from "@/lib/buenosAiresDate";
 import type { ReceiptPdfPaymentLine } from "./ReceiptDocument";
+import {
+  DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+  normalizeReceiptAdjustmentLabel,
+} from "@/utils/receipts/paymentAdjustments";
 
 export type ReceiptStandalonePdfData = {
   receiptNumber: string;
@@ -125,6 +129,26 @@ const paymentLabel = (p: ReceiptPdfPaymentLine) => {
 
   return pm;
 };
+
+const paymentAccountLabel = (p: ReceiptPdfPaymentLine) => {
+  const accountName = (p.accountName || "").trim();
+  if (accountName && accountName.toLowerCase() !== "sin cuenta") {
+    return accountName;
+  }
+  if (
+    typeof p.account_id === "number" &&
+    Number.isFinite(p.account_id) &&
+    p.account_id > 0
+  ) {
+    return `Cuenta N° ${p.account_id}`;
+  }
+  return "";
+};
+
+const paymentAdjustmentLabel = (p: ReceiptPdfPaymentLine) =>
+  normalizeReceiptAdjustmentLabel(
+    p.fee_label ?? DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+  );
 
 const formatServiceRange = (svc: {
   dateLabel?: string | null;
@@ -393,7 +417,7 @@ export default function ReceiptStandaloneDocument(
                 Acreditado: {safeFmtCurrency(amount, displayCurrency)}
               </Text>
               <Text style={styles.amountMeta}>
-                Costo financiero: {safeFmtCurrency(fee, displayCurrency)}
+                Ajustes del cobro: {safeFmtCurrency(fee, displayCurrency)}
               </Text>
             </>
           ) : null}
@@ -444,38 +468,47 @@ export default function ReceiptStandaloneDocument(
           <View style={styles.section}>
             <Text style={styles.label}>Pagos</Text>
             <View style={styles.list}>
-              {payments.map((p, idx) => (
-                <View key={`${p.payment_method_id}-${idx}`}>
-                  <View style={styles.payLine}>
-                    <Text style={styles.payLeft}>
-                      {softWrapLongWords(paymentLabel(p), {
-                        maxWordLen: 18,
-                        chunkLen: 10,
-                        breakChar: " ",
-                      })}
-                    </Text>
-                    <Text style={styles.payRight}>
-                      {safeFmtCurrency(
-                        p.amount,
-                        (p.payment_currency || displayCurrency || "ARS").toUpperCase(),
-                      )}
-                    </Text>
+              {payments.map((p, idx) => {
+                const paymentCurrency = (
+                  p.payment_currency ||
+                  displayCurrency ||
+                  "ARS"
+                ).toUpperCase();
+                const accountLabel = paymentAccountLabel(p);
+                return (
+                  <View key={`${p.payment_method_id}-${idx}`}>
+                    <View style={styles.payLine}>
+                      <Text style={styles.payLeft}>
+                        {softWrapLongWords(paymentLabel(p), {
+                          maxWordLen: 18,
+                          chunkLen: 10,
+                          breakChar: " ",
+                        })}
+                      </Text>
+                      <Text style={styles.payRight}>
+                        {safeFmtCurrency(p.amount, paymentCurrency)}
+                      </Text>
+                    </View>
+                    {typeof p.fee_amount === "number" && p.fee_amount > 0 ? (
+                      <Text style={styles.payMeta}>
+                        {paymentAdjustmentLabel(p)}:{" "}
+                        {safeFmtCurrency(p.fee_amount, paymentCurrency)}
+                      </Text>
+                    ) : null}
+                    {accountLabel ? (
+                      <Text style={styles.payMeta}>
+                        Cuenta:{" "}
+                        {softWrapLongWords(accountLabel, { breakChar: " " })}
+                      </Text>
+                    ) : null}
                   </View>
-                  {typeof p.fee_amount === "number" && p.fee_amount > 0 ? (
-                    <Text style={styles.payMeta}>
-                      Costo financiero:{" "}
-                      {safeFmtCurrency(
-                        p.fee_amount,
-                        (p.payment_currency || displayCurrency || "ARS").toUpperCase(),
-                      )}
-                    </Text>
-                  ) : null}
-                </View>
-              ))}
+                );
+              })}
             </View>
             {showLegacyGlobalFee ? (
               <Text style={styles.payMeta}>
-                Costo financiero: {safeFmtCurrency(fee, displayCurrency)}
+                {DEFAULT_RECEIPT_ADJUSTMENT_LABEL}:{" "}
+                {safeFmtCurrency(fee, displayCurrency)}
               </Text>
             ) : null}
           </View>

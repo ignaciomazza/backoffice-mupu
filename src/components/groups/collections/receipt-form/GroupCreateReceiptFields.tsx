@@ -15,6 +15,7 @@ import type { Client } from "@/types";
 import Spinner from "@/components/Spinner";
 import { parseAmountInput } from "@/utils/receipts/receiptForm";
 import { formatMoneyInput, shouldPreferDotDecimal } from "@/utils/moneyInput";
+import { RECEIPT_ADJUSTMENT_LABELS } from "@/utils/receipts/paymentAdjustments";
 import { Field, Section, inputBase } from "./primitives";
 
 type CreditAccountOption = {
@@ -33,6 +34,7 @@ type PaymentDraft = {
   payment_currency: string;
   fee_mode: "NONE" | ReceiptPaymentFeeMode;
   fee_value: string;
+  fee_label: string;
 
   operator_id: number | null;
   credit_account_id: number | null;
@@ -109,6 +111,7 @@ export default function GroupCreateReceiptFields(props: {
     mode: "NONE" | ReceiptPaymentFeeMode,
   ) => void;
   setPaymentLineFeeValue: (key: string, value: string) => void;
+  setPaymentLineFeeLabel: (key: string, value: string) => void;
   getPaymentLineFee: (key: string) => number;
   getPaymentLineImpact: (key: string) => number;
 
@@ -186,6 +189,7 @@ export default function GroupCreateReceiptFields(props: {
     setPaymentLineCurrency,
     setPaymentLineFeeMode,
     setPaymentLineFeeValue,
+    setPaymentLineFeeLabel,
     getPaymentLineFee,
     getPaymentLineImpact,
 
@@ -320,13 +324,13 @@ export default function GroupCreateReceiptFields(props: {
 
           <article className="rounded-2xl border border-sky-200/70 bg-sky-50/45 px-4 py-3 dark:border-sky-900/40 dark:bg-slate-900/55">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-              Costo financiero
+              Ajustes del cobro
             </p>
             <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
               {feeAmount || "—"}
             </p>
             <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
-              Sumatoria de costos por pago.
+              Sumatoria de ajustes por pago.
             </p>
           </article>
 
@@ -338,7 +342,7 @@ export default function GroupCreateReceiptFields(props: {
               {clientTotal || "—"}
             </p>
             <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
-              Cobro + costo financiero.
+              Cobro + ajustes.
             </p>
           </article>
         </div>
@@ -364,7 +368,7 @@ export default function GroupCreateReceiptFields(props: {
 
       <Section
         title="Pagos"
-        desc="Por cada método cargá importe, cuenta, moneda y costo financiero."
+        desc="Por cada método cargá importe, cuenta, moneda y ajustes."
       >
         <div className="space-y-3 md:col-span-2">
           {errors.payments && (
@@ -626,7 +630,7 @@ export default function GroupCreateReceiptFields(props: {
                 </div>
 
                 <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
-                  <div className="md:col-span-4">
+                  <div className="md:col-span-3">
                     <label className="ml-1 block text-xs font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
                       Moneda del cobro
                     </label>
@@ -658,9 +662,9 @@ export default function GroupCreateReceiptFields(props: {
                     )}
                   </div>
 
-                  <div className="md:col-span-4">
+                  <div className="md:col-span-3">
                     <label className="ml-1 block text-xs font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
-                      Costo financiero
+                      Ajuste del cobro
                     </label>
                     <select
                       value={line.fee_mode}
@@ -672,15 +676,35 @@ export default function GroupCreateReceiptFields(props: {
                       }
                       className={`${inputBase} cursor-pointer appearance-none`}
                     >
-                      <option value="NONE">Sin costo</option>
+                      <option value="NONE">Sin ajuste</option>
                       <option value="PERCENT">Porcentaje (%)</option>
                       <option value="FIXED">Monto fijo</option>
                     </select>
                   </div>
 
-                  <div className="md:col-span-4">
+                  <div className="md:col-span-3">
                     <label className="ml-1 block text-xs font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
-                      Valor del costo
+                      Concepto
+                    </label>
+                    <select
+                      value={line.fee_label}
+                      onChange={(e) =>
+                        setPaymentLineFeeLabel(line.key, e.target.value)
+                      }
+                      className={`${inputBase} cursor-pointer appearance-none`}
+                      disabled={line.fee_mode === "NONE"}
+                    >
+                      {RECEIPT_ADJUSTMENT_LABELS.map((label) => (
+                        <option key={label} value={label}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="md:col-span-3">
+                    <label className="ml-1 block text-xs font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
+                      Valor del ajuste
                     </label>
                     <input
                       value={line.fee_value}
@@ -718,7 +742,7 @@ export default function GroupCreateReceiptFields(props: {
                         line.payment_currency || effectiveCurrency,
                       )}
                       {line.fee_mode !== "NONE"
-                        ? ` (CF: ${formatNum(
+                        ? ` (Ajuste: ${formatNum(
                             getPaymentLineFee(line.key),
                             line.payment_currency || effectiveCurrency,
                           )})`

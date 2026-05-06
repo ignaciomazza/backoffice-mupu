@@ -25,6 +25,10 @@ import {
   endOfDayUtcFromDateKeyInBuenosAires,
   startOfDayUtcFromDateKeyInBuenosAires,
 } from "@/lib/buenosAiresDate";
+import {
+  DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+  normalizeReceiptAdjustmentLabel,
+} from "@/utils/receipts/paymentAdjustments";
 
 /* ======================================================
  * Tipos
@@ -59,6 +63,7 @@ export type ReceiptPaymentLine = {
   fee_mode?: ReceiptFeeMode | null;
   fee_value?: number | string | null;
   fee_amount?: number | string | null;
+  fee_label?: string | null;
 
   // ✅ nuevo (no se persiste en ReceiptPayment, se usa para el FE)
   operator_id?: number;
@@ -73,6 +78,7 @@ export type ReceiptPaymentOut = {
   fee_mode?: ReceiptFeeMode | null;
   fee_value?: number | null;
   fee_amount?: number | null;
+  fee_label?: string | null;
 
   // extras legacy para UI/PDF si existían como texto
   payment_method_text?: string;
@@ -87,6 +93,7 @@ type ReceiptPaymentLineIn = {
   fee_mode?: unknown;
   fee_value?: unknown;
   fee_amount?: unknown;
+  fee_label?: unknown;
   operator_id?: unknown;
 };
  
@@ -98,6 +105,7 @@ type ReceiptPaymentLineNormalized = {
   fee_mode?: ReceiptFeeMode;
   fee_value?: number;
   fee_amount?: number;
+  fee_label?: string;
   operator_id?: number;
 };
 
@@ -132,6 +140,7 @@ type ReceiptSchemaFlags = {
   hasPaymentFeeMode: boolean;
   hasPaymentFeeValue: boolean;
   hasPaymentFeeAmount: boolean;
+  hasPaymentFeeLabel: boolean;
 };
 
 async function getReceiptSchemaFlags(): Promise<ReceiptSchemaFlags> {
@@ -141,12 +150,14 @@ async function getReceiptSchemaFlags(): Promise<ReceiptSchemaFlags> {
     hasPaymentFeeMode,
     hasPaymentFeeValue,
     hasPaymentFeeAmount,
+    hasPaymentFeeLabel,
   ] = await Promise.all([
     hasSchemaColumn("ReceiptPayment", "id_receipt_payment"),
     hasSchemaColumn("ReceiptPayment", "payment_currency"),
     hasSchemaColumn("ReceiptPayment", "fee_mode"),
     hasSchemaColumn("ReceiptPayment", "fee_value"),
     hasSchemaColumn("ReceiptPayment", "fee_amount"),
+    hasSchemaColumn("ReceiptPayment", "fee_label"),
   ]);
 
   return {
@@ -155,6 +166,7 @@ async function getReceiptSchemaFlags(): Promise<ReceiptSchemaFlags> {
     hasPaymentFeeMode,
     hasPaymentFeeValue,
     hasPaymentFeeAmount,
+    hasPaymentFeeLabel,
   };
 }
 
@@ -170,6 +182,7 @@ function buildReceiptPaymentSelect(
     ...(flags.hasPaymentFeeMode ? { fee_mode: true } : {}),
     ...(flags.hasPaymentFeeValue ? { fee_value: true } : {}),
     ...(flags.hasPaymentFeeAmount ? { fee_amount: true } : {}),
+    ...(flags.hasPaymentFeeLabel ? { fee_label: true } : {}),
   };
 }
 
@@ -195,7 +208,7 @@ type ReceiptPostBody = {
   // NUEVO: pagos múltiples (si viene esto, el amount total sale de la suma)
   payments?: ReceiptPaymentLineIn[];
 
-  // Costo financiero agregado (sumatoria de fees por línea)
+  // Ajustes del cobro agregados (sumatoria de fees por línea)
   payment_fee_amount?: number | string;
 
   // Asociaciones
@@ -810,6 +823,12 @@ function normalizePaymentsFromReceipt(r: unknown): ReceiptPaymentOut[] {
       const feeValueRaw = toNum(pay.fee_value);
       const feeAmountRaw = toNum(pay.fee_amount);
       const feeMode = normalizeReceiptFeeMode(pay.fee_mode);
+      const feeLabel =
+        Number.isFinite(feeAmountRaw) && feeAmountRaw > 0
+          ? normalizeReceiptAdjustmentLabel(
+              pay.fee_label ?? DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+            )
+          : null;
       return {
         amount: Number(pay.amount ?? 0),
         payment_method_id: Number.isFinite(pm) && pm > 0 ? pm : null,
@@ -820,6 +839,7 @@ function normalizePaymentsFromReceipt(r: unknown): ReceiptPaymentOut[] {
         fee_mode: feeMode,
         fee_value: Number.isFinite(feeValueRaw) ? feeValueRaw : null,
         fee_amount: Number.isFinite(feeAmountRaw) ? feeAmountRaw : null,
+        fee_label: feeLabel,
       };
     });
   }
@@ -1797,6 +1817,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         fee_value: Number.isFinite(feeValueRaw) ? feeValueRaw : undefined,
         fee_amount: Number.isFinite(feeAmountRaw) ? feeAmountRaw : undefined,
       });
+      const feeLabel =
+        (normalizedFee.fee_amount ?? 0) > 0
+          ? normalizeReceiptAdjustmentLabel(
+              p.fee_label ?? DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+            )
+          : undefined;
 
       return {
         amount: amountValue,
@@ -1808,6 +1834,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         fee_mode: normalizedFee.fee_mode,
         fee_value: normalizedFee.fee_value,
         fee_amount: normalizedFee.fee_amount,
+        fee_label: feeLabel,
         operator_id: toOptionalId(p.operator_id),
       };
     });
@@ -2407,6 +2434,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
                       ? new Prisma.Decimal(Number(p.fee_amount))
                       : null,
                 }
+              : {}),
+            ...(schemaFlags.hasPaymentFeeLabel
+              ? { fee_label: p.fee_amount && p.fee_amount > 0 ? p.fee_label ?? null : null }
               : {}),
           })),
         });

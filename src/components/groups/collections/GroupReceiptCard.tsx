@@ -394,7 +394,7 @@ export default function GroupReceiptCard({
   const paymentFeeCard = hasPaymentFee ? (
     <div className={metaItemClass}>
       <p className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        Costo financiero
+        Ajustes del cobro
       </p>
       <p className="mt-1 text-[13px] font-medium tabular-nums md:text-sm">
         {fmtMoney(
