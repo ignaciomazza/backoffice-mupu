@@ -75,6 +75,8 @@ export type ReceiptPaymentLine = {
   fee_value?: number | null;
   fee_amount?: number | null;
   fee_label?: string | null;
+  payment_method_text?: string | null;
+  account_text?: string | null;
 
   // (para UI / movimiento crédito)
   operator_id?: number | null;

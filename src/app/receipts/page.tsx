@@ -155,6 +155,7 @@ type ReceiptRow = {
     fee_mode?: "FIXED" | "PERCENT" | null;
     fee_value?: number | null;
     fee_amount?: number | null;
+    fee_label?: string | null;
     payment_method_text?: string;
     account_text?: string;
   }[];
@@ -1552,12 +1553,49 @@ export default function ReceiptsPage() {
 
   const buildInitialPayments = useCallback(
     (row: ReceiptRow): ReceiptPaymentLine[] => {
+      const resolvePaymentMethodId = (value?: string | null) => {
+        const needle = norm(value || "");
+        if (!needle) return null;
+        const found = finance?.paymentMethods?.find(
+          (method) => norm(method.name || "") === needle,
+        );
+        return found?.id_method ?? null;
+      };
+      const resolveAccountId = (value?: string | null) => {
+        const needle = norm(value || "");
+        if (!needle) return null;
+        const found = finance?.accounts?.find(
+          (account) => norm(account.name || "") === needle,
+        );
+        return found?.id_account ?? null;
+      };
+
       if (Array.isArray(row.payments) && row.payments.length > 0) {
         return row.payments.map((p) => ({
           amount: toNum(p.amount),
           payment_method_id:
-            p.payment_method_id != null ? p.payment_method_id : null,
-          account_id: p.account_id ?? null,
+            p.payment_method_id != null
+              ? p.payment_method_id
+              : resolvePaymentMethodId(
+                  p.payment_method_text || row.payment_method,
+                ),
+          account_id:
+            p.account_id ??
+            resolveAccountId(p.account_text || row.account),
+          payment_currency:
+            String(p.payment_currency || row.amount_currency || "ARS")
+              .trim()
+              .toUpperCase() || "ARS",
+          fee_mode:
+            p.fee_mode === "FIXED" || p.fee_mode === "PERCENT"
+              ? p.fee_mode
+              : null,
+          fee_value: p.fee_value ?? null,
+          fee_amount: p.fee_amount ?? null,
+          fee_label: p.fee_label ?? null,
+          payment_method_text:
+            p.payment_method_text ?? row.payment_method ?? null,
+          account_text: p.account_text ?? row.account ?? null,
           operator_id: null,
           client_id: null,
           client_credit_mode: "DEBIT",
@@ -1569,13 +1607,24 @@ export default function ReceiptsPage() {
       const accId = Number(row.account_id ?? NaN);
       const hasPm = Number.isFinite(pmId) && pmId > 0;
       const hasAcc = Number.isFinite(accId) && accId > 0;
+      const resolvedPmId = hasPm
+        ? pmId
+        : resolvePaymentMethodId(row.payment_method);
+      const resolvedAccId = hasAcc ? accId : resolveAccountId(row.account);
+      const paymentMethodText = String(row.payment_method || "").trim();
+      const accountText = String(row.account || "").trim();
 
-      if (hasPm || hasAcc) {
+      if (resolvedPmId || resolvedAccId || paymentMethodText || accountText) {
         return [
           {
             amount: toNum(row.amount),
-            payment_method_id: hasPm ? pmId : null,
-            account_id: hasAcc ? accId : null,
+            payment_method_id: resolvedPmId,
+            account_id: resolvedAccId,
+            payment_currency:
+              String(row.amount_currency || "ARS").trim().toUpperCase() ||
+              "ARS",
+            payment_method_text: paymentMethodText || null,
+            account_text: accountText || null,
             operator_id: null,
             client_id: null,
             client_credit_mode: "DEBIT",
@@ -1586,7 +1635,7 @@ export default function ReceiptsPage() {
 
       return [];
     },
-    [],
+    [finance?.accounts, finance?.paymentMethods],
   );
 
   const startEditReceipt = (row: ReceiptRow) => {

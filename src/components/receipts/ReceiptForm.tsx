@@ -101,6 +101,9 @@ const CLIENT_CREDIT_METHOD_ALIASES = new Set([
 const isClientCreditMethodName = (value: string) =>
   CLIENT_CREDIT_METHOD_ALIASES.has(normalizeMethodName(value));
 
+const hasAutoDebtSuffix = (value: string) =>
+  /\s-(?:ADEUDA\b|NO ADEUDA SALDO-?)/i.test(String(value || ""));
+
 // 👇 Cambiá esto si tu endpoint es otro
 const CREDIT_ACCOUNTS_ENDPOINT = "/api/credit/account";
 
@@ -123,6 +126,8 @@ type PaymentDraft = {
   amount: string;
   payment_method_id: number | null;
   account_id: number | null;
+  payment_method_text?: string | null;
+  account_text?: string | null;
   payment_currency: string;
   fee_mode: "NONE" | ReceiptPaymentFeeMode;
   fee_value: string;
@@ -1211,6 +1216,8 @@ export default function ReceiptForm({
         payment_method_id:
           p.payment_method_id != null ? Number(p.payment_method_id) : null,
         account_id: p.account_id ?? null,
+        payment_method_text: p.payment_method_text ?? null,
+        account_text: p.account_text ?? null,
         payment_currency: normalizeCurrencyCodeLoose(
           p.payment_currency ??
             initialCurrency ??
@@ -1778,6 +1785,46 @@ export default function ReceiptForm({
     );
   };
 
+  useEffect(() => {
+    if (!paymentMethodsUi.length && !accountsTyped.length) return;
+
+    setPaymentLines((prev) => {
+      let changed = false;
+      const next = prev.map((line) => {
+        let resolved = line;
+
+        if (line.payment_method_id == null && line.payment_method_text) {
+          const methodNeedle = normalizeMethodName(line.payment_method_text);
+          const method = paymentMethodsUi.find(
+            (item) => normalizeMethodName(item.name || "") === methodNeedle,
+          );
+          if (method) {
+            resolved = { ...resolved, payment_method_id: method.id_method };
+            changed = true;
+          }
+        }
+
+        if (line.account_id == null && line.account_text) {
+          const accountNeedle = normalizeMethodName(line.account_text);
+          const account = accountsTyped.find(
+            (item) =>
+              normalizeMethodName(item.display_name || item.name || "") ===
+                accountNeedle ||
+              normalizeMethodName(item.name || "") === accountNeedle,
+          );
+          if (account) {
+            resolved = { ...resolved, account_id: account.id_account };
+            changed = true;
+          }
+        }
+
+        return resolved;
+      });
+
+      return changed ? next : prev;
+    });
+  }, [accountsTyped, paymentMethodsUi]);
+
   const setPaymentLineCreditAccount = (
     key: string,
     creditAccountId: number | null,
@@ -1987,7 +2034,8 @@ export default function ReceiptForm({
   );
   const [paymentDescriptionDirty, setPaymentDescriptionDirty] = useState(
     Boolean(
-      initialPdfItemsPayload.paymentDetail || initialPdfItemsPayload.encoded,
+      initialPdfItemsPayload.paymentDetail &&
+        !hasAutoDebtSuffix(initialPdfItemsPayload.paymentDetail),
     ),
   );
   const [manualPdfItemsEnabled, setManualPdfItemsEnabled] = useState(

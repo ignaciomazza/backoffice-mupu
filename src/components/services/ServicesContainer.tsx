@@ -302,6 +302,9 @@ type ReceiptWithPayments = Receipt & {
     fee_mode?: "FIXED" | "PERCENT" | null;
     fee_value?: number | string | null;
     fee_amount?: number | string | null;
+    fee_label?: string | null;
+    payment_method_text?: string | null;
+    account_text?: string | null;
   }>;
 };
 
@@ -1106,6 +1109,9 @@ export default function ServicesContainer(props: ServicesContainerProps) {
           payment_method_id:
             p.payment_method_id != null ? Number(p.payment_method_id) : null,
           account_id: p.account_id != null ? Number(p.account_id) : null,
+          payment_method_text:
+            p.payment_method_text ?? receipt.payment_method ?? null,
+          account_text: p.account_text ?? receipt.account ?? null,
           payment_currency:
             typeof p.payment_currency === "string"
               ? p.payment_currency
@@ -1118,6 +1124,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
             p.fee_value != null ? toFiniteNumber(p.fee_value, 0) : undefined,
           fee_amount:
             p.fee_amount != null ? toFiniteNumber(p.fee_amount, 0) : undefined,
+          fee_label: p.fee_label ?? null,
           operator_id: null,
           credit_account_id: null,
         }));
@@ -1132,14 +1139,24 @@ export default function ServicesContainer(props: ServicesContainerProps) {
       const hasPaymentMethod =
         Number.isFinite(paymentMethodId) && paymentMethodId > 0;
       const hasAccount = Number.isFinite(accountId) && accountId > 0;
+      const paymentMethodText = String(receipt.payment_method || "").trim();
+      const accountText = String(receipt.account || "").trim();
 
-      if (!hasPaymentMethod && !hasAccount) return [];
+      if (
+        !hasPaymentMethod &&
+        !hasAccount &&
+        !paymentMethodText &&
+        !accountText
+      )
+        return [];
 
       return [
         {
           amount: toFiniteNumber(receipt.amount, 0),
           payment_method_id: hasPaymentMethod ? paymentMethodId : null,
           account_id: hasAccount ? accountId : null,
+          payment_method_text: paymentMethodText || null,
+          account_text: accountText || null,
           payment_currency:
             typeof receipt.amount_currency === "string"
               ? receipt.amount_currency
