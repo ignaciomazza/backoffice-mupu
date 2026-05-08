@@ -243,6 +243,7 @@ export default function ServicesPage() {
     null,
   );
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
 
@@ -448,6 +449,7 @@ export default function ServicesPage() {
     (async () => {
       try {
         setLoading(true);
+        setLoadError(null);
 
         // 1) Booking
         const res = await authFetch(
@@ -496,12 +498,14 @@ export default function ServicesPage() {
           // silencioso: evita cortar la carga por notas
         }
 
-        try {
-          if (!seededReceipts.length) {
+        if (seededReceipts.length) {
+          void fetchReceipts(bookingId, ac.signal).catch(() => {
+            // Conservamos los recibos incluidos en /api/bookings/:id.
+          });
+        } else {
+          try {
             await fetchReceipts(bookingId, ac.signal);
-          }
-        } catch {
-          if (!seededReceipts.length) {
+          } catch {
             toast.error("No se pudieron cargar los recibos.");
           }
         }
@@ -517,8 +521,10 @@ export default function ServicesPage() {
           setOperatorsReady(true);
         }
       } catch (e) {
+        if (ac.signal.aborted) return;
         const msg =
           e instanceof Error ? e.message : "No se pudieron cargar los datos.";
+        if (mountedRef.current) setLoadError(msg);
         toast.error(msg);
       } finally {
         if (mountedRef.current) setLoading(false);
@@ -1412,6 +1418,7 @@ export default function ServicesPage() {
           invoices={invoices}
           receipts={receipts}
           creditNotes={creditNotes}
+          loadError={loadError}
           onReceiptCreated={handleReceiptCreated}
           onReceiptDeleted={handleReceiptDeleted}
           onCreditNoteCreated={handleCreditNoteCreated}

@@ -125,6 +125,7 @@ interface ServicesContainerProps {
   invoices: Invoice[];
   receipts: Receipt[];
   creditNotes: CreditNoteWithItems[];
+  loadError?: string | null;
   onReceiptDeleted?: (id: number) => void;
   onReceiptCreated?: (r?: Receipt) => void;
   onCreditNoteCreated?: () => void;
@@ -411,6 +412,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     invoices,
     receipts,
     creditNotes,
+    loadError,
     onReceiptDeleted,
     onReceiptCreated,
     onCreditNoteCreated,
@@ -1644,12 +1646,19 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   /* ================= Render ================= */
   if (!loading && !booking) {
     return (
-      <div className="flex h-[80vh] w-full flex-col items-center justify-center">
-        <Spinner />
-        <p className="absolute top-[54vh] w-1/3 text-center font-light dark:text-white">
-          Si la carga de datos tarda mucho, revisá tu internet, recargá la
-          página o volvé a la anterior.
+      <div className="flex h-[80vh] w-full flex-col items-center justify-center px-4 text-center text-sky-950 dark:text-white">
+        <p className="text-lg font-medium">No se pudo cargar la reserva.</p>
+        <p className="mt-3 max-w-xl text-sm font-light opacity-80">
+          {loadError ||
+            "Revisá tu internet, recargá la página o volvé a la anterior."}
         </p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="mt-6 rounded-full border border-white/20 bg-white/30 px-5 py-2 text-sm font-medium shadow-sm shadow-sky-950/10 transition hover:bg-white/50 dark:bg-white/10 dark:hover:bg-white/15"
+        >
+          Recargar
+        </button>
       </div>
     );
   }
