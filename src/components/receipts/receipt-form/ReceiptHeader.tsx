@@ -2,7 +2,7 @@
 "use client";
 
 import React from "react";
-import { pillBase, pillNeutral, pillOk } from "./primitives";
+import { pillBase, pillNeutral } from "./primitives";
 
 type Mode = "agency" | "booking";
 type Action = "create" | "attach";
@@ -89,12 +89,12 @@ export default function ReceiptHeader(props: {
 
         <div className="hidden items-center gap-2 md:flex">
           <span
-            className={`${pillBase} ${action === "attach" ? pillOk : pillNeutral}`}
+            className={`${pillBase} ${pillNeutral}`}
           >
             {action === "attach" ? "Asociar existente" : "Crear nuevo"}
           </span>
 
-          <span className={`${pillBase} ${mode === "booking" ? pillOk : pillNeutral}`}>
+          <span className={`${pillBase} ${pillNeutral}`}>
             {mode === "booking" ? "Con reserva" : "Agencia"}
           </span>
 
@@ -105,12 +105,12 @@ export default function ReceiptHeader(props: {
           )}
 
           {selectedServiceCount > 0 && (
-            <span className={`${pillBase} ${pillOk}`}>Svcs: {selectedServiceCount}</span>
+            <span className={`${pillBase} ${pillNeutral}`}>Svcs: {selectedServiceCount}</span>
           )}
 
           {!!effectiveCurrency && lockedCurrency && lockedCurrency !== effectiveCurrency ? (
             <>
-              <span className={`${pillBase} ${pillOk}`}>
+              <span className={`${pillBase} ${pillNeutral}`}>
                 Servicio: {lockedCurrency} (lock)
               </span>
               <span className={`${pillBase} ${pillNeutral}`}>
@@ -120,7 +120,7 @@ export default function ReceiptHeader(props: {
           ) : (
             !!effectiveCurrency && (
               <span
-                className={`${pillBase} ${lockedCurrency ? pillOk : pillNeutral}`}
+                className={`${pillBase} ${pillNeutral}`}
               >
                 {effectiveCurrency} {lockedCurrency ? "(lock)" : ""}
               </span>

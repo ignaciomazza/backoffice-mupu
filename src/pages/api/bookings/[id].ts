@@ -192,6 +192,23 @@ function parseDateTimeOrNull(value: unknown): Date | null | undefined {
   return parsed;
 }
 
+async function resolveUseBookingSaleTotal(args: {
+  tx: Prisma.TransactionClient;
+  idAgency: number;
+  currentOverride: boolean | null;
+  nextOverride: boolean | null | undefined;
+}): Promise<boolean> {
+  const { tx, idAgency, currentOverride, nextOverride } = args;
+  const effectiveOverride =
+    nextOverride !== undefined ? nextOverride : currentOverride;
+  if (typeof effectiveOverride === "boolean") return effectiveOverride;
+  const cfg = await tx.serviceCalcConfig.findUnique({
+    where: { id_agency: idAgency },
+    select: { use_booking_sale_total: true },
+  });
+  return Boolean(cfg?.use_booking_sale_total);
+}
+
 function sanitizeVoucherPdfDraft(value: unknown): Prisma.InputJsonValue | null {
   if (!isRecord(value)) return null;
   if (!Array.isArray(value.blocks)) return null;
@@ -632,42 +649,76 @@ export default async function handler(
     }
 
     try {
-      const booking = await prisma.booking.update({
-        where: { id_booking: existing.id_booking },
-        data: {
-          ...(normalizedCommissionOverrides !== undefined
-            ? {
-                commission_overrides:
-                  normalizedCommissionOverrides === null
-                    ? Prisma.DbNull
-                    : normalizedCommissionOverrides,
-              }
-            : {}),
-          ...(normalizedSaleTotals !== undefined
-            ? {
-                sale_totals:
-                  normalizedSaleTotals === null
-                    ? Prisma.DbNull
-                    : normalizedSaleTotals,
-              }
-            : {}),
-          ...(parsedSaleTotalOverride !== undefined
-            ? { use_booking_sale_total_override: parsedSaleTotalOverride }
-            : {}),
-          ...(normalizedVoucherPdfDraft !== undefined
-            ? { voucher_pdf_draft: normalizedVoucherPdfDraft }
-            : {}),
-          ...(parsedVoucherPdfDraftSavedAt !== undefined
-            ? { voucher_pdf_draft_saved_at: parsedVoucherPdfDraftSavedAt }
-            : {}),
-        },
-        include: {
-          titular: true,
-          user: true,
-          agency: true,
-          clients: true,
-          simple_companions: { include: { category: true } },
-        },
+      const shouldClearServiceSaleOnPatch =
+        sale_totals !== undefined ||
+        use_booking_sale_total_override !== undefined;
+
+      const booking = await prisma.$transaction(async (tx) => {
+        const updated = await tx.booking.update({
+          where: { id_booking: existing.id_booking },
+          data: {
+            ...(normalizedCommissionOverrides !== undefined
+              ? {
+                  commission_overrides:
+                    normalizedCommissionOverrides === null
+                      ? Prisma.DbNull
+                      : normalizedCommissionOverrides,
+                }
+              : {}),
+            ...(normalizedSaleTotals !== undefined
+              ? {
+                  sale_totals:
+                    normalizedSaleTotals === null
+                      ? Prisma.DbNull
+                      : normalizedSaleTotals,
+                }
+              : {}),
+            ...(parsedSaleTotalOverride !== undefined
+              ? { use_booking_sale_total_override: parsedSaleTotalOverride }
+              : {}),
+            ...(normalizedVoucherPdfDraft !== undefined
+              ? { voucher_pdf_draft: normalizedVoucherPdfDraft }
+              : {}),
+            ...(parsedVoucherPdfDraftSavedAt !== undefined
+              ? { voucher_pdf_draft_saved_at: parsedVoucherPdfDraftSavedAt }
+              : {}),
+          },
+          include: {
+            titular: true,
+            user: true,
+            agency: true,
+            clients: true,
+            simple_companions: { include: { category: true } },
+          },
+        });
+
+        if (shouldClearServiceSaleOnPatch) {
+          const useBookingSaleTotal = await resolveUseBookingSaleTotal({
+            tx,
+            idAgency: authAgencyId,
+            currentOverride:
+              existing.use_booking_sale_total_override ?? null,
+            nextOverride:
+              parsedSaleTotalOverride !== undefined
+                ? parsedSaleTotalOverride
+                : undefined,
+          });
+
+          if (useBookingSaleTotal) {
+            await tx.service.updateMany({
+              where: { booking_id: existing.id_booking },
+              data: {
+                sale_price: 0,
+                card_interest: 0,
+                card_interest_21: 0,
+                taxableCardInterest: 0,
+                vatOnCardInterest: 0,
+              },
+            });
+          }
+        }
+
+        return updated;
       });
       return res.status(200).json(booking);
     } catch (error) {
@@ -827,6 +878,10 @@ export default async function handler(
     }
 
     try {
+      const shouldClearServiceSaleOnPut =
+        sale_totals !== undefined ||
+        use_booking_sale_total_override !== undefined;
+
       // ===== Acompañantes: sanitizar placeholders, evitar duplicados y conflicto con titular
       const companions: number[] = Array.isArray(clients_ids)
         ? clients_ids.map(Number).filter((id) => Number.isFinite(id) && id > 0)
@@ -1086,6 +1141,32 @@ export default async function handler(
             "booking",
             requestedAgencyBookingId + 1,
           );
+        }
+
+        if (shouldClearServiceSaleOnPut) {
+          const useBookingSaleTotal = await resolveUseBookingSaleTotal({
+            tx,
+            idAgency: authAgencyId,
+            currentOverride:
+              existing.use_booking_sale_total_override ?? null,
+            nextOverride:
+              parsedSaleTotalOverride !== undefined
+                ? parsedSaleTotalOverride
+                : undefined,
+          });
+
+          if (useBookingSaleTotal) {
+            await tx.service.updateMany({
+              where: { booking_id: existing.id_booking },
+              data: {
+                sale_price: 0,
+                card_interest: 0,
+                card_interest_21: 0,
+                taxableCardInterest: 0,
+                vatOnCardInterest: 0,
+              },
+            });
+          }
         }
 
         if (shouldCancelPendingClientPayments) {

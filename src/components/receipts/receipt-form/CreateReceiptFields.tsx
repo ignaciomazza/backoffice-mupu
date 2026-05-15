@@ -60,8 +60,6 @@ export default function CreateReceiptFields(props: {
   // ✅ id del método crédito (real si existe, o virtual 0)
   creditMethodId: number;
   clientCreditMethodId: number;
-  issueDate: string;
-  setIssueDate: (v: string) => void;
 
   // pasajeros
   clientsCount: number;
@@ -73,8 +71,6 @@ export default function CreateReceiptFields(props: {
 
   // monto/moneda (total, readOnly)
   amountReceived: string;
-  feeAmount: string;
-  clientTotal: string;
 
   lockedCurrency: string | null;
   loadingPicks: boolean;
@@ -85,12 +81,6 @@ export default function CreateReceiptFields(props: {
   conversionEnabled: boolean;
   setConversionEnabled: (next: boolean) => void;
 
-  suggestions: {
-    base: number | null;
-    fee: number | null;
-    total: number | null;
-  } | null;
-  applySuggestedAmounts: () => void;
   formatNum: (n: number, cur?: string) => string;
 
   // palabras
@@ -191,8 +181,6 @@ export default function CreateReceiptFields(props: {
     token,
     creditMethodId,
     clientCreditMethodId,
-    issueDate,
-    setIssueDate,
 
     clientsCount,
     clientIds,
@@ -202,8 +190,6 @@ export default function CreateReceiptFields(props: {
     excludeForIndex,
 
     amountReceived,
-    feeAmount,
-    clientTotal,
 
     lockedCurrency,
     loadingPicks,
@@ -214,8 +200,6 @@ export default function CreateReceiptFields(props: {
     conversionEnabled,
     setConversionEnabled,
 
-    suggestions,
-    applySuggestedAmounts,
     formatNum,
 
     amountWords,
@@ -305,8 +289,6 @@ export default function CreateReceiptFields(props: {
     allocationPaymentCurrencyOptions[0] ||
     selectedServiceCurrencies[0] ||
     "ARS";
-  const paymentAvailableForSelectedCurrency =
-    paymentAvailableForAllocationByCurrency[selectedAllocationCurrency] || 0;
   const normalizeCode = (raw: string | null | undefined) =>
     String(raw || "")
       .trim()
@@ -336,11 +318,13 @@ export default function CreateReceiptFields(props: {
       const amountPayment = parseAmountInput(
         serviceAllocationPaymentAmountsById[service.id_service] || "",
       );
+      const isCrossCurrency = paymentCurrency !== serviceCurrency;
       const allocated =
-        amountPayment != null && amountPayment > 0
+        isCrossCurrency && amountPayment != null && amountPayment > 0
           ? amountPayment
           : amountService;
-      acc[paymentCurrency] = (acc[paymentCurrency] || 0) + allocated;
+      const bucketCurrency = isCrossCurrency ? paymentCurrency : serviceCurrency;
+      acc[bucketCurrency] = (acc[bucketCurrency] || 0) + allocated;
       return acc;
     },
     {},
@@ -413,82 +397,6 @@ export default function CreateReceiptFields(props: {
               />
             </div>
           ))}
-        </div>
-      </Section>
-
-      <Section
-        title="Fecha del recibo"
-        desc="Podés cargar recibos con fechas anteriores."
-      >
-        <Field id="issue_date" label="Fecha" required>
-          <input
-            id="issue_date"
-            type="date"
-            value={issueDate}
-            onChange={(e) => setIssueDate(e.target.value)}
-            className={`${inputBase} cursor-pointer`}
-            required
-          />
-          {errors.issue_date && (
-            <p className="mt-1 text-xs text-red-600">{errors.issue_date}</p>
-          )}
-        </Field>
-      </Section>
-
-      <Section
-        title="Totales del cobro"
-        desc="Resumen automático a partir de las líneas cargadas."
-      >
-        <div className="grid gap-3 md:col-span-2 md:grid-cols-3">
-          <article className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-950/70 dark:text-white/70">
-              Total cobrado
-            </p>
-            <p className="mt-1 text-sm font-semibold">
-              {amountReceived || "—"}
-            </p>
-            <p className="mt-1 text-[11px] text-sky-950/65 dark:text-white/65">
-              Neto que entra a caja/banco.
-            </p>
-          </article>
-
-          <article className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-950/70 dark:text-white/70">
-              Ajustes del cobro
-            </p>
-            <p className="mt-1 text-sm font-semibold">{feeAmount || "—"}</p>
-            <p className="mt-1 text-[11px] text-sky-950/65 dark:text-white/65">
-              Sumatoria de ajustes por pago.
-            </p>
-          </article>
-
-          <article className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-950/70 dark:text-white/70">
-              Total cliente
-            </p>
-            <p className="mt-1 text-sm font-semibold">{clientTotal || "—"}</p>
-            <p className="mt-1 text-[11px] text-sky-950/65 dark:text-white/65">
-              Cobro + ajustes.
-            </p>
-          </article>
-        </div>
-
-        <div className="md:col-span-2">
-          {errors.amount && (
-            <p className="mt-1 text-xs text-red-600">{errors.amount}</p>
-          )}
-          {suggestions?.base != null && (
-            <button
-              type="button"
-              onClick={applySuggestedAmounts}
-              className="mt-2 text-xs underline underline-offset-2"
-            >
-              {conversionEnabled
-                ? "Usar valor base sugerido:"
-                : "Ajustar al sugerido:"}{" "}
-              {formatNum(suggestions.base, lockedCurrency || effectiveCurrency)}
-            </button>
-          )}
         </div>
       </Section>
 
@@ -1183,14 +1091,10 @@ export default function CreateReceiptFields(props: {
                       : amountReceived || "—"}
                 </div>
               </div>
-              {hasMixedPaymentCurrencies ? (
+              {hasMixedPaymentCurrencies && (
                 <p className="mt-2 text-[10px] opacity-70">
                   Con cobro en múltiples monedas, cargá el contravalor
                   manualmente.
-                </p>
-              ) : (
-                <p className="mt-2 text-[10px] opacity-70">
-                  Si dejás contravalor vacío, se toma el total cobrado.
                 </p>
               )}
             </div>
@@ -1381,15 +1285,6 @@ export default function CreateReceiptFields(props: {
                       </div>
                     </div>
 
-                    <div className="mt-3 flex items-center justify-between">
-                      <p className="text-xs text-sky-950/70 dark:text-white/70">
-                        Disponible (cobro + CF) en {selectedAllocationCurrency}:{" "}
-                        {formatNum(
-                          paymentAvailableForSelectedCurrency,
-                          selectedAllocationCurrency,
-                        )}
-                      </p>
-                    </div>
                   </div>
 
                   {allocationDeltaWarnings.length > 0 && (
@@ -1567,46 +1462,43 @@ export default function CreateReceiptFields(props: {
       )}
 
       <Section
-        title="Importe en palabras"
-        desc='Debe coincidir con el valor aplicado (ej.: "UN MILLÓN CIEN MIL").'
-      >
-        <Field id="amount_words" label="Equivalente en palabras" required>
-          <input
-            id="amount_words"
-            value={amountWords}
-            onChange={(e) => setAmountWords(e.target.value)}
-            placeholder='Ej.: "UN MILLÓN CIEN MIL"'
-            className={inputBase}
-          />
-          {errors.amountWords && (
-            <p className="mt-1 text-xs text-red-600">{errors.amountWords}</p>
-          )}
-        </Field>
-      </Section>
-
-      <Section
         title="Detalle para PDF"
         desc="Texto visible en el recibo. Si no escribís nada, se autogenera."
       >
         <div className="md:col-span-2">
-          <Field
-            id="payment_desc"
-            label="Método de pago (detalle para el PDF)"
-            required
-          >
+          <Field id="amount_words" label="Equivalente en palabras" required>
             <input
-              id="payment_desc"
-              value={paymentDescription}
-              onChange={(e) => setPaymentDescription(e.target.value)}
-              placeholder="Ej.: Efectivo: 100 USD + Transferencia: 200 USD (si querés, agregá detalle entre paréntesis)"
+              id="amount_words"
+              value={amountWords}
+              onChange={(e) => setAmountWords(e.target.value)}
+              placeholder='Ej.: "UN MILLÓN CIEN MIL"'
               className={inputBase}
             />
-            {errors.paymentDescription && (
-              <p className="mt-1 text-xs text-red-600">
-                {errors.paymentDescription}
-              </p>
+            {errors.amountWords && (
+              <p className="mt-1 text-xs text-red-600">{errors.amountWords}</p>
             )}
           </Field>
+
+          <div className="mt-3">
+            <Field
+              id="payment_desc"
+              label="Método de pago (detalle para el PDF)"
+              required
+            >
+              <input
+                id="payment_desc"
+                value={paymentDescription}
+                onChange={(e) => setPaymentDescription(e.target.value)}
+                placeholder="Ej.: Efectivo: 100 USD + Transferencia: 200 USD (si querés, agregá detalle entre paréntesis)"
+                className={inputBase}
+              />
+              {errors.paymentDescription && (
+                <p className="mt-1 text-xs text-red-600">
+                  {errors.paymentDescription}
+                </p>
+              )}
+            </Field>
+          </div>
 
           <div className="mt-3">
             <Field id="concept" label="Concepto">

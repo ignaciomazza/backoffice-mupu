@@ -276,6 +276,17 @@ const addReceiptToPaidByCurrency = (
       0,
     );
     const feeRemainder = feeValue - lineFeeTotal;
+    const hasDirectBasePaymentLine =
+      paymentLines.length > 0 &&
+      paymentLines.some((line) => {
+        const lineCurrency = normalizeCurrencyCodeLoose(
+          line?.payment_currency || amountCurrency,
+        );
+        if (lineCurrency !== baseCurrency) return false;
+        const lineAmount = toNumberLoose(line?.amount ?? 0);
+        const lineFee = toNumberLoose(line?.fee_amount ?? 0);
+        return Math.abs(lineAmount + lineFee) > DEBT_TOLERANCE;
+      });
     const feeInBase =
       (paymentLines.length > 0
         ? paymentLines.reduce((sum, line) => {
@@ -295,6 +306,28 @@ const addReceiptToPaidByCurrency = (
     const credited = baseValue + feeInBase;
     if (Math.abs(credited) <= DEBT_TOLERANCE) return;
     target[baseCurrency] = round2((target[baseCurrency] || 0) + credited);
+
+    if (hasDirectBasePaymentLine) {
+      for (const line of paymentLines) {
+        const lineCurrency = normalizeCurrencyCodeLoose(
+          line?.payment_currency || amountCurrency,
+        );
+        if (lineCurrency === baseCurrency) continue;
+        const lineAmount = toNumberLoose(line?.amount ?? 0);
+        const lineFee = toNumberLoose(line?.fee_amount ?? 0);
+        const creditedLine = lineAmount + lineFee;
+        if (Math.abs(creditedLine) <= DEBT_TOLERANCE) continue;
+        target[lineCurrency] = round2((target[lineCurrency] || 0) + creditedLine);
+      }
+      if (
+        Math.abs(feeRemainder) > DEBT_TOLERANCE &&
+        amountCurrency !== baseCurrency
+      ) {
+        target[amountCurrency] = round2(
+          (target[amountCurrency] || 0) + feeRemainder,
+        );
+      }
+    }
     return;
   }
 
@@ -820,8 +853,71 @@ export default function ReceiptForm({
     loadServicesForBooking,
   });
 
+  const normalizedInitialServiceAllocations = useMemo(() => {
+    const rows = Array.isArray(initialServiceAllocations)
+      ? initialServiceAllocations
+      : [];
+    return rows
+      .map((alloc) => {
+        const serviceId = Number(alloc?.service_id);
+        if (!Number.isFinite(serviceId) || serviceId <= 0) return null;
+
+        const amountService = toNumberLoose(alloc?.amount_service ?? 0);
+        if (!Number.isFinite(amountService) || amountService <= 0) return null;
+
+        const serviceCurrency = normalizeCurrencyCodeLoose(
+          alloc?.service_currency || "ARS",
+        );
+        const parsedPaymentCurrency = normalizeOptionalCurrencyCodeLoose(
+          alloc?.payment_currency || "",
+        );
+        const paymentCurrency = parsedPaymentCurrency || serviceCurrency;
+        const rawAmountPayment = toNumberLoose(alloc?.amount_payment ?? 0);
+        const amountPayment =
+          rawAmountPayment > 0
+            ? rawAmountPayment
+            : paymentCurrency === serviceCurrency
+              ? amountService
+              : 0;
+        const rawFxRate = toNumberLoose(alloc?.fx_rate ?? 0);
+        const fxRate =
+          rawFxRate > 0
+            ? rawFxRate
+            : amountPayment > 0 && paymentCurrency !== serviceCurrency
+              ? amountPayment / amountService
+              : 0;
+
+        return {
+          service_id: Math.trunc(serviceId),
+          amount_service: round2(amountService),
+          service_currency: serviceCurrency,
+          ...(paymentCurrency ? { payment_currency: paymentCurrency } : {}),
+          ...(amountPayment > 0 ? { amount_payment: round2(amountPayment) } : {}),
+          ...(fxRate > 0 ? { fx_rate: round2(fxRate) } : {}),
+        };
+      })
+      .filter(
+        (
+          alloc,
+        ): alloc is {
+          service_id: number;
+          amount_service: number;
+          service_currency: string;
+          amount_payment?: number;
+          payment_currency?: string;
+          fx_rate?: number;
+        } => alloc !== null,
+      );
+  }, [initialServiceAllocations]);
+
+  const normalizedInitialServiceIds = useMemo(() => {
+    const fromIds = normalizeIdListLoose(initialServiceIds);
+    if (fromIds.length > 0) return fromIds;
+    return normalizedInitialServiceAllocations.map((alloc) => alloc.service_id);
+  }, [initialServiceIds, normalizedInitialServiceAllocations]);
+
   const [selectedServiceIds, setSelectedServiceIds] =
-    useState<number[]>(initialServiceIds);
+    useState<number[]>(normalizedInitialServiceIds);
   const [receiptServiceSelectionMode, setReceiptServiceSelectionMode] =
     useState<ReceiptServiceSelectionMode>("required");
 
@@ -830,6 +926,11 @@ export default function ReceiptForm({
       prev.filter((id) => services.some((s) => s.id_service === id)),
     );
   }, [services]);
+
+  useEffect(() => {
+    if (!editingReceiptId) return;
+    setSelectedServiceIds(normalizedInitialServiceIds);
+  }, [editingReceiptId, normalizedInitialServiceIds]);
 
   const allBookingServiceIds = useMemo(
     () => services.map((s) => s.id_service),
@@ -879,14 +980,11 @@ export default function ReceiptForm({
     userSelectedServices,
   ]);
   const [manualServiceAllocationsEnabled, setManualServiceAllocationsEnabled] =
-    useState(
-      Array.isArray(initialServiceAllocations) &&
-        initialServiceAllocations.length > 0,
-    );
+    useState(normalizedInitialServiceAllocations.length > 0);
   const [serviceAllocationAmountsById, setServiceAllocationAmountsById] =
     useState<Record<number, string>>(() => {
       const out: Record<number, string> = {};
-      for (const alloc of initialServiceAllocations || []) {
+      for (const alloc of normalizedInitialServiceAllocations) {
         const serviceId = Number(alloc?.service_id);
         const amountRaw = Number(alloc?.amount_service ?? 0);
         if (!Number.isFinite(serviceId) || serviceId <= 0) continue;
@@ -900,7 +998,7 @@ export default function ReceiptForm({
     setServiceAllocationPaymentAmountsById,
   ] = useState<Record<number, string>>(() => {
     const out: Record<number, string> = {};
-    for (const alloc of initialServiceAllocations || []) {
+    for (const alloc of normalizedInitialServiceAllocations) {
       const serviceId = Number(alloc?.service_id);
       const amountRaw = Number(alloc?.amount_payment ?? 0);
       if (!Number.isFinite(serviceId) || serviceId <= 0) continue;
@@ -914,7 +1012,7 @@ export default function ReceiptForm({
     setServiceAllocationPaymentCurrencyById,
   ] = useState<Record<number, string>>(() => {
     const out: Record<number, string> = {};
-    for (const alloc of initialServiceAllocations || []) {
+    for (const alloc of normalizedInitialServiceAllocations) {
       const serviceId = Number(alloc?.service_id);
       const paymentCurrency = normalizeOptionalCurrencyCodeLoose(
         alloc?.payment_currency || "",
@@ -925,6 +1023,39 @@ export default function ReceiptForm({
     }
     return out;
   });
+
+  useEffect(() => {
+    if (!editingReceiptId) return;
+    setManualServiceAllocationsEnabled(
+      normalizedInitialServiceAllocations.length > 0,
+    );
+    setServiceAllocationPresetMode("manual");
+    setServiceAllocationAmountsById(() => {
+      const out: Record<number, string> = {};
+      for (const alloc of normalizedInitialServiceAllocations) {
+        out[alloc.service_id] = String(alloc.amount_service);
+      }
+      return out;
+    });
+    setServiceAllocationPaymentAmountsById(() => {
+      const out: Record<number, string> = {};
+      for (const alloc of normalizedInitialServiceAllocations) {
+        const amountPayment = toNumberLoose(alloc.amount_payment ?? 0);
+        if (amountPayment > 0) out[alloc.service_id] = String(amountPayment);
+      }
+      return out;
+    });
+    setServiceAllocationPaymentCurrencyById(() => {
+      const out: Record<number, string> = {};
+      for (const alloc of normalizedInitialServiceAllocations) {
+        const paymentCurrency = normalizeOptionalCurrencyCodeLoose(
+          alloc.payment_currency || "",
+        );
+        if (paymentCurrency) out[alloc.service_id] = paymentCurrency;
+      }
+      return out;
+    });
+  }, [editingReceiptId, normalizedInitialServiceAllocations]);
 
   useEffect(() => {
     setServiceAllocationAmountsById((prev) => {
@@ -1170,7 +1301,9 @@ export default function ReceiptForm({
       const amountPayment = parseAmountInput(
         serviceAllocationPaymentAmountsById[serviceId] || "",
       );
+      const isCrossCurrency = paymentCurrency !== serviceCurrency;
       const hasPaymentAmount =
+        isCrossCurrency &&
         amountPayment != null &&
         Number.isFinite(amountPayment) &&
         amountPayment > 0;
@@ -1183,9 +1316,7 @@ export default function ReceiptForm({
           ? {
               amount_payment: round2(amountPayment),
               fx_rate:
-                serviceCurrency !== paymentCurrency
-                  ? round2(amountPayment / amount)
-                  : undefined,
+                isCrossCurrency ? round2(amountPayment / amount) : undefined,
             }
           : {}),
       });
@@ -1329,27 +1460,6 @@ export default function ReceiptForm({
     () => formatCurrencyBreakdown(paymentsAmountByCurrency),
     [paymentsAmountByCurrency],
   );
-
-  const feeAmount = useMemo(
-    () => formatCurrencyBreakdown(paymentsFeeByCurrency),
-    [paymentsFeeByCurrency],
-  );
-
-  const clientTotalByCurrency = useMemo(() => {
-    const acc: Record<string, number> = {};
-    const currencies = new Set([
-      ...Object.keys(paymentsAmountByCurrency),
-      ...Object.keys(paymentsFeeByCurrency),
-    ]);
-    for (const currency of currencies) {
-      const total =
-        (paymentsAmountByCurrency[currency] || 0) +
-        (paymentsFeeByCurrency[currency] || 0);
-      if (total <= 0) continue;
-      acc[currency] = round2(total);
-    }
-    return acc;
-  }, [paymentsAmountByCurrency, paymentsFeeByCurrency]);
 
   const paymentsFeeTotalNum = useMemo(() => {
     return round2(
@@ -1939,91 +2049,6 @@ export default function ReceiptForm({
       prev.map((l) => (l.key === key ? { ...l, client_credit_mode: mode } : l)),
     );
   };
-
-  // aplicar sugeridos: ajusta la ÚLTIMA línea para que el total matchee
-  const applySuggestedAmounts = () => {
-    if (!suggestions) return;
-
-    if (conversionEnabled && lockedCurrency) {
-      if (suggestions.base != null) setBaseAmount(String(suggestions.base));
-      if (!baseCurrency) setBaseCurrency(lockedCurrency);
-      return;
-    }
-
-    if (suggestions.base == null) return;
-    const target = suggestions.base;
-
-    setPaymentLines((prev) => {
-      if (!prev.length) {
-        return [
-          {
-            key: uid(),
-            amount: String(target),
-            payment_method_id: null,
-            account_id: null,
-            payment_currency: normalizeCurrencyCodeLoose(
-              freeCurrency || lockedCurrency || "ARS",
-            ),
-            fee_mode: "NONE",
-            fee_value: "",
-            fee_label: DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
-            operator_id: null,
-            client_id: null,
-            client_credit_mode: "DEBIT",
-            credit_account_id: null,
-          },
-        ];
-      }
-      const lastIdx = prev.length - 1;
-      const sumExceptLast = prev
-        .slice(0, lastIdx)
-        .reduce((acc, l) => acc + (parseAmountInput(l.amount) ?? 0), 0);
-      const nextLast = Math.max(0, target - sumExceptLast);
-
-      const next = [...prev];
-      next[lastIdx] = {
-        ...next[lastIdx],
-        amount: nextLast.toLocaleString("es-AR", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        }),
-        ...(suggestions.fee != null
-          ? {
-              fee_mode: "FIXED" as const,
-              fee_value: suggestions.fee.toLocaleString("es-AR", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              }),
-              fee_label:
-                next[lastIdx].fee_label || DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
-            }
-          : {}),
-      };
-      return next;
-    });
-  };
-
-  const clientTotal = useMemo(() => {
-    const byPayments = formatCurrencyBreakdown(clientTotalByCurrency);
-    if (byPayments) return byPayments;
-    if (conversionEnabled) return "";
-
-    const base = suggestions?.base ?? null;
-    const fee = suggestions?.fee ?? null;
-    if (base === null && fee === null) return "";
-    const total = (base ?? 0) + (fee ?? 0);
-    if (!total || total <= 0) return "";
-    return formatCurrencyMoney(
-      total,
-      lockedCurrency || defaultCurrency || "ARS",
-    );
-  }, [
-    clientTotalByCurrency,
-    suggestions,
-    conversionEnabled,
-    lockedCurrency,
-    defaultCurrency,
-  ]);
 
   /* ===== Detalle de pago para PDF ===== */
   const initialPdfItemsPayload = decodeReceiptPdfItemsPayload(
@@ -2665,6 +2690,16 @@ export default function ReceiptForm({
     toNum,
   ]);
 
+  const pendingByCurrency = useMemo(() => {
+    return selectedServices.reduce<Record<string, number>>((acc, service) => {
+      const pending = toNum(service.pending_amount);
+      if (!Number.isFinite(pending) || pending <= 0) return acc;
+      const currency = normalizeCurrencyCode(service.currency || "ARS");
+      acc[currency] = round2((acc[currency] || 0) + pending);
+      return acc;
+    }, {});
+  }, [selectedServices, normalizeCurrencyCode, toNum]);
+
   const serviceCurrencyById = useMemo(
     () =>
       new Map(
@@ -2688,7 +2723,9 @@ export default function ReceiptForm({
             splitInterest > 0
               ? splitInterest
               : toNumberLoose(service.card_interest);
-          return [service.id_service, round2(Math.max(0, sale + cardInterest))];
+          const gross = Math.max(0, sale + cardInterest);
+          const pending = Math.max(0, toNumberLoose(service.pending_amount));
+          return [service.id_service, round2(gross > 0 ? gross : pending)];
         }),
       ),
     [services],
@@ -2791,7 +2828,104 @@ export default function ReceiptForm({
     toNum,
   ]);
 
+  const originalCurrentPaidByCurrency = useMemo(() => {
+    const acc: Record<string, number> = {};
+    if (!editingReceiptId) return acc;
+
+    const selectedServiceIdSet = new Set(serviceIdsForContext);
+    const receiptFromInitial: ReceiptForDebt = {
+      amount:
+        initialAmount != null && Number.isFinite(Number(initialAmount))
+          ? Number(initialAmount)
+          : 0,
+      amount_currency:
+        normalizeOptionalCurrencyCodeLoose(initialCurrency || "") ||
+        normalizeOptionalCurrencyCodeLoose(initialBaseCurrency || "") ||
+        effectiveCurrency ||
+        "ARS",
+      payment_fee_amount:
+        initialFeeAmount != null && Number.isFinite(Number(initialFeeAmount))
+          ? Number(initialFeeAmount)
+          : 0,
+      base_amount: initialBaseAmount ?? null,
+      base_currency: initialBaseCurrency ?? null,
+      service_allocations: normalizedInitialServiceAllocations,
+      payments: (Array.isArray(initialPayments) ? initialPayments : []).map(
+        (line) => ({
+          amount: line.amount ?? 0,
+          payment_currency: line.payment_currency || undefined,
+          fee_amount: line.fee_amount ?? 0,
+        }),
+      ),
+    };
+
+    if (!bookingSaleMode && selectedServiceIdSet.size > 0) {
+      addReceiptToPaidByCurrency(acc, receiptFromInitial, {
+        selectedServiceIds: selectedServiceIdSet,
+      });
+      return acc;
+    }
+
+    addReceiptToPaidByCurrency(acc, receiptFromInitial);
+    return acc;
+  }, [
+    editingReceiptId,
+    serviceIdsForContext,
+    initialAmount,
+    initialCurrency,
+    initialFeeAmount,
+    initialBaseAmount,
+    initialBaseCurrency,
+    initialPayments,
+    normalizedInitialServiceAllocations,
+    bookingSaleMode,
+    effectiveCurrency,
+  ]);
+
   const debtByCurrency = useMemo(() => {
+    const hasSalesSnapshot = Object.values(salesByCurrency).some(
+      (value) => value > DEBT_TOLERANCE,
+    );
+    const hasPendingSnapshot = Object.values(pendingByCurrency).some(
+      (value) => value > DEBT_TOLERANCE,
+    );
+
+    if (mode === "booking" && !bookingSaleMode && hasPendingSnapshot) {
+      const acc: Record<string, number> = {};
+      const currencies = new Set([
+        ...Object.keys(pendingByCurrency),
+        ...Object.keys(originalCurrentPaidByCurrency),
+        ...Object.keys(currentPaidByCurrency),
+      ]);
+      currencies.forEach((cur) => {
+        const pending = pendingByCurrency[cur] || 0;
+        const originalPaid = editingReceiptId
+          ? originalCurrentPaidByCurrency[cur] || 0
+          : 0;
+        const currentPaid = currentPaidByCurrency[cur] || 0;
+        acc[cur] = pending + originalPaid - currentPaid;
+      });
+      return acc;
+    }
+
+    if (mode === "booking" && !bookingSaleMode && !hasSalesSnapshot) {
+      if (editingReceiptId && Object.keys(originalCurrentPaidByCurrency).length) {
+        const acc: Record<string, number> = {};
+        const currencies = new Set([
+          ...Object.keys(originalCurrentPaidByCurrency),
+          ...Object.keys(currentPaidByCurrency),
+        ]);
+        currencies.forEach((cur) => {
+          const original = originalCurrentPaidByCurrency[cur] || 0;
+          const current = currentPaidByCurrency[cur] || 0;
+          acc[cur] = round2(original - current);
+        });
+        return acc;
+      }
+
+      return {};
+    }
+
     const acc: Record<string, number> = {};
     const currencies = new Set([
       ...Object.keys(salesByCurrency),
@@ -2805,7 +2939,16 @@ export default function ReceiptForm({
       acc[cur] = sale - paid;
     });
     return acc;
-  }, [salesByCurrency, paidByCurrency, currentPaidByCurrency]);
+  }, [
+    mode,
+    bookingSaleMode,
+    editingReceiptId,
+    salesByCurrency,
+    pendingByCurrency,
+    paidByCurrency,
+    currentPaidByCurrency,
+    originalCurrentPaidByCurrency,
+  ]);
 
   const overpaidByCurrency = useMemo(() => {
     const acc: Record<string, number> = {};
@@ -2997,13 +3140,18 @@ export default function ReceiptForm({
                 const paymentCurrency = normalizeCurrencyCodeLoose(
                   alloc.payment_currency || serviceCurrency,
                 );
+                const isCrossCurrency = paymentCurrency !== serviceCurrency;
                 const amountPayment = toNum(alloc.amount_payment);
                 const amountService = toNum(alloc.amount_service);
                 const amount =
-                  Number.isFinite(amountPayment) && amountPayment > 0
+                  isCrossCurrency &&
+                  Number.isFinite(amountPayment) &&
+                  amountPayment > 0
                     ? amountPayment
                     : amountService;
-                const code = paymentCurrency || serviceCurrency;
+                const code = isCrossCurrency
+                  ? paymentCurrency
+                  : serviceCurrency;
                 acc[code] = round2((acc[code] || 0) + amount);
                 return acc;
               }, {});
@@ -3331,6 +3479,7 @@ export default function ReceiptForm({
     if (
       mode === "booking" &&
       selectedBookingId &&
+      bookingDebtContextReady &&
       Object.keys(overpaidByCurrency).length > 0
     ) {
       const selectedClientIds = clientIds.filter(
@@ -3662,6 +3811,8 @@ export default function ReceiptForm({
                 action={action}
                 setAction={setAction}
                 hideContext={hideContextSection}
+                issueDate={issueDate}
+                setIssueDate={setIssueDate}
                 canToggleAgency={canToggleAgency}
                 mode={mode}
                 setMode={setMode}
@@ -3704,8 +3855,6 @@ export default function ReceiptForm({
                   token={token}
                   creditMethodId={operatorCreditMethodId}
                   clientCreditMethodId={clientCreditMethodId}
-                  issueDate={issueDate}
-                  setIssueDate={setIssueDate}
                   clientsCount={clientsCount}
                   clientIds={clientIds}
                   onIncClient={onIncClient}
@@ -3713,8 +3862,6 @@ export default function ReceiptForm({
                   setClientAt={setClientAt}
                   excludeForIndex={excludeForIndex}
                   amountReceived={amountReceived}
-                  feeAmount={feeAmount}
-                  clientTotal={clientTotal}
                   lockedCurrency={lockedCurrency}
                   loadingPicks={loadingPicks}
                   currencies={currenciesTyped}
@@ -3722,8 +3869,6 @@ export default function ReceiptForm({
                   currencyOverride={currencyOverride}
                   conversionEnabled={conversionEnabled}
                   setConversionEnabled={setConversionEnabled}
-                  suggestions={suggestions}
-                  applySuggestedAmounts={applySuggestedAmounts}
                   formatNum={formatNum}
                   amountWords={amountWords}
                   setAmountWords={setAmountWords}

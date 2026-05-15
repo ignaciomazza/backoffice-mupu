@@ -1124,6 +1124,7 @@ export default function ServiceForm({
 
   /* ========== Moneda segura para UI/formatos ========== */
   const currencyOptions = useMemo(() => {
+    const fallback = ["ARS", "USD"];
     const financeEnabled = uniqSorted(
       (financeCurrencies || [])
         .filter((c) => c.enabled)
@@ -1138,7 +1139,7 @@ export default function ServiceForm({
         .filter(Boolean),
     );
 
-    return uniqSorted([...financeEnabled, ...contextual]);
+    return uniqSorted([...fallback, ...financeEnabled, ...contextual]);
   }, [financeCurrencies, formData.currency, activePreset?.currency]);
 
   const currencyLabelDict = useMemo(() => {

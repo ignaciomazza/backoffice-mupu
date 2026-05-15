@@ -17,6 +17,7 @@ import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import { responseErrorMessage } from "@/utils/httpError";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
+import { parseAmountInput } from "@/utils/receipts/receiptForm";
 import ReceiptForm from "@/components/receipts/ReceiptForm";
 import { useRouter } from "next/navigation";
 import {
@@ -1292,6 +1293,18 @@ export default function ReceiptsPage() {
 
   const loadServicesForBooking = useCallback(
     async (bId: number): Promise<ServiceLite[]> => {
+    const toAmountLoose = (value: unknown): number => {
+      if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+      if (typeof value === "string") {
+        const parsed = parseAmountInput(value);
+        if (parsed != null && Number.isFinite(parsed)) return parsed;
+        const numeric = Number(value.replace(",", "."));
+        return Number.isFinite(numeric) ? numeric : 0;
+      }
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : 0;
+    };
+
     const mapArr = (arr: ReadonlyArray<BookingServiceItem>): ServiceLite[] =>
       (arr || []).map((s) => {
         const rawId = s?.id_service ?? s?.id ?? 0;
@@ -1306,30 +1319,12 @@ export default function ReceiptsPage() {
         const currency = String(
           s?.currency ?? s?.sale_currency ?? "ARS",
         ).toUpperCase();
-        const sale =
-          typeof s?.sale_price === "number"
-            ? s.sale_price
-            : Number(s?.sale_price ?? 0);
-        const cost =
-          typeof s?.cost_price === "number"
-            ? s.cost_price
-            : Number(s?.cost_price ?? 0);
-        const cardInt =
-          typeof s?.card_interest === "number"
-            ? s.card_interest
-            : Number(s?.card_interest ?? 0);
-        const cardBase =
-          typeof s?.taxableCardInterest === "number"
-            ? s.taxableCardInterest
-            : Number(s?.taxableCardInterest ?? 0);
-        const cardVat =
-          typeof s?.vatOnCardInterest === "number"
-            ? s.vatOnCardInterest
-            : Number(s?.vatOnCardInterest ?? 0);
-        const pendingAmount =
-          typeof s?.pending_amount === "number"
-            ? s.pending_amount
-            : Number(s?.pending_amount ?? 0);
+        const sale = toAmountLoose(s?.sale_price);
+        const cost = toAmountLoose(s?.cost_price);
+        const cardInt = toAmountLoose(s?.card_interest);
+        const cardBase = toAmountLoose(s?.taxableCardInterest);
+        const cardVat = toAmountLoose(s?.vatOnCardInterest);
+        const pendingAmount = toAmountLoose(s?.pending_amount);
         return {
           id_service: Number.isFinite(id) ? id : 0,
           agency_service_id: Number.isFinite(agencyId) ? agencyId : undefined,

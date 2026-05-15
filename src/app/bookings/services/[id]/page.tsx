@@ -79,6 +79,71 @@ function isRecord(v: unknown): v is AnyRecord {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+function normalizeIdList(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  const out: number[] = [];
+  const seen = new Set<number>();
+  for (const raw of value) {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0) continue;
+    const id = Math.trunc(parsed);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+function normalizeCurrencyCode(value: unknown): string {
+  const code = String(value ?? "")
+    .trim()
+    .toUpperCase();
+  if (!code) return "ARS";
+  if (["US$", "U$S", "U$D", "DOL", "USD$"].includes(code)) return "USD";
+  if (["$", "AR$"].includes(code)) return "ARS";
+  return code;
+}
+
+function normalizeServiceAllocations(value: unknown): Receipt["service_allocations"] {
+  if (!Array.isArray(value)) return [];
+  const out: NonNullable<Receipt["service_allocations"]> = [];
+  for (const item of value) {
+    const row = isRecord(item) ? item : {};
+    const serviceId = Number(row.service_id);
+    if (!Number.isFinite(serviceId) || serviceId <= 0) continue;
+    const amountServiceRaw =
+      typeof row.amount_service === "number"
+        ? row.amount_service
+        : Number(row.amount_service ?? 0);
+    const amountService = Number.isFinite(amountServiceRaw) ? amountServiceRaw : 0;
+    const amountPaymentRaw =
+      typeof row.amount_payment === "number"
+        ? row.amount_payment
+        : Number(row.amount_payment ?? 0);
+    const fxRateRaw =
+      typeof row.fx_rate === "number" ? row.fx_rate : Number(row.fx_rate ?? 0);
+    const allocId = Number(row.id_receipt_service_allocation);
+
+    out.push({
+      id_receipt_service_allocation:
+        Number.isFinite(allocId) && allocId > 0 ? Math.trunc(allocId) : undefined,
+      service_id: Math.trunc(serviceId),
+      amount_service: amountService,
+      service_currency: normalizeCurrencyCode(row.service_currency ?? "ARS"),
+      ...(Number.isFinite(amountPaymentRaw) && amountPaymentRaw > 0
+        ? { amount_payment: amountPaymentRaw }
+        : {}),
+      ...(typeof row.payment_currency === "string" && row.payment_currency.trim()
+        ? { payment_currency: normalizeCurrencyCode(row.payment_currency) }
+        : {}),
+      ...(Number.isFinite(fxRateRaw) && fxRateRaw > 0
+        ? { fx_rate: fxRateRaw }
+        : {}),
+    });
+  }
+  return out;
+}
+
 type BookingPayload = Booking & {
   services?: Service[];
   invoices?: Invoice[];
@@ -136,7 +201,12 @@ function coerceReceipt(r: unknown): Receipt {
     receipt_number: String(obj.receipt_number ?? obj.number ?? ""),
     issue_date: rawIssue as Receipt["issue_date"],
     amount: Number.isFinite(amount) ? amount : 0,
-    amount_currency: String(obj.amount_currency ?? obj.currency ?? "ARS"),
+    amount_currency: normalizeCurrencyCode(
+      obj.amount_currency ?? obj.currency ?? "ARS",
+    ),
+    serviceIds: normalizeIdList(obj.serviceIds),
+    clientIds: normalizeIdList(obj.clientIds),
+    service_allocations: normalizeServiceAllocations(obj.service_allocations),
   } as Receipt;
 }
 

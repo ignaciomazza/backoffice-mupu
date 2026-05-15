@@ -100,6 +100,9 @@ type ReceiptServiceAllocationOut = {
   service_id: number;
   amount_service: number;
   service_currency: string;
+  amount_payment?: number;
+  payment_currency?: string;
+  fx_rate?: number;
 };
 
 type ReceiptSchemaFlags = {
@@ -516,6 +519,15 @@ function normalizeServiceAllocationsFromReceipt(
         ? round2(amountRaw)
         : 0;
       const currency = normalizeCurrency(rec.service_currency ?? "ARS");
+      const amountPaymentRaw = toNum(rec.amount_payment);
+      const amountPayment = Number.isFinite(amountPaymentRaw)
+        ? round2(amountPaymentRaw)
+        : 0;
+      const paymentCurrency = isNonEmptyString(rec.payment_currency)
+        ? normalizeCurrency(rec.payment_currency)
+        : "";
+      const fxRateRaw = toNum(rec.fx_rate);
+      const fxRate = Number.isFinite(fxRateRaw) ? round2(fxRateRaw) : 0;
       const allocIdRaw = Number(rec.id_receipt_service_allocation);
       return {
         id_receipt_service_allocation:
@@ -528,6 +540,9 @@ function normalizeServiceAllocationsFromReceipt(
             : 0,
         amount_service: amountService,
         service_currency: currency,
+        ...(amountPayment > 0 ? { amount_payment: amountPayment } : {}),
+        ...(paymentCurrency ? { payment_currency: paymentCurrency } : {}),
+        ...(fxRate > 0 ? { fx_rate: fxRate } : {}),
       };
     })
     .filter((row) => row.service_id > 0);
@@ -726,6 +741,18 @@ function addReceiptToPaidByCurrency(
   const feeRemainder = feeValue - lineFeeTotal;
 
   if (baseCurrency && Math.abs(baseValue) > DEBT_TOLERANCE) {
+    const hasDirectBasePaymentLine =
+      paymentLines.length > 0 &&
+      paymentLines.some((line) => {
+        const lineCurrency = normalizeCurrency(
+          line?.payment_currency || amountCurrency,
+        );
+        if (lineCurrency !== baseCurrency) return false;
+        const lineAmount = toNum(line?.amount ?? 0);
+        const lineFee = toNum(line?.fee_amount ?? 0);
+        return Math.abs(lineAmount + lineFee) > DEBT_TOLERANCE;
+      });
+
     const feeInBaseCurrency =
       paymentLines.length > 0
         ? paymentLines.reduce((sum, line) => {
@@ -747,6 +774,28 @@ function addReceiptToPaidByCurrency(
     const credited = baseValue + feeInBaseWithRemainder;
     if (Math.abs(credited) <= DEBT_TOLERANCE) return;
     target[baseCurrency] = round2((target[baseCurrency] || 0) + credited);
+
+    if (hasDirectBasePaymentLine) {
+      for (const line of paymentLines) {
+        const lineCurrency = normalizeCurrency(
+          line?.payment_currency || amountCurrency,
+        );
+        if (lineCurrency === baseCurrency) continue;
+        const lineAmount = toNum(line?.amount ?? 0);
+        const lineFee = toNum(line?.fee_amount ?? 0);
+        const creditedLine = lineAmount + lineFee;
+        if (Math.abs(creditedLine) <= DEBT_TOLERANCE) continue;
+        target[lineCurrency] = round2((target[lineCurrency] || 0) + creditedLine);
+      }
+      if (
+        Math.abs(feeRemainder) > DEBT_TOLERANCE &&
+        amountCurrency !== baseCurrency
+      ) {
+        target[amountCurrency] = round2(
+          (target[amountCurrency] || 0) + feeRemainder,
+        );
+      }
+    }
     return;
   }
 
@@ -1107,7 +1156,33 @@ export default async function handler(
       const body = (req.body || {}) as PatchBody;
       const bookingId = Number(body.booking?.id_booking);
       const serviceIds = normalizeIdList(body.serviceIds);
-      const isAttach = Number.isFinite(bookingId) || serviceIds.length > 0;
+      const hasAttachScope = Number.isFinite(bookingId) || serviceIds.length > 0;
+      const hasAnyReceiptEditField = [
+        "concept",
+        "currency",
+        "amountString",
+        "amountCurrency",
+        "amount",
+        "payments",
+        "payment_fee_amount",
+        "payment_method",
+        "account",
+        "payment_method_id",
+        "account_id",
+        "base_amount",
+        "base_currency",
+        "counter_amount",
+        "counter_currency",
+        "serviceAllocations",
+        "service_allocations",
+        "clientIds",
+        "issue_date",
+      ].some((key) => Object.prototype.hasOwnProperty.call(body, key));
+      const isAttach =
+        hasAttachScope &&
+        !hasAnyReceiptEditField &&
+        Number.isFinite(bookingId) &&
+        bookingId > 0;
 
       if (!canReceipts && !canReceiptsForm) {
         return res.status(403).json({ error: "Sin permisos" });
@@ -1616,6 +1691,8 @@ export default async function handler(
             ? normalizeCurrency(alloc.payment_currency)
             : undefined;
           const amountPayment = toNum(alloc.amount_payment);
+          const isCrossCurrency =
+            Boolean(paymentCurrency) && paymentCurrency !== serviceCurrency;
           if (
             alloc.service_currency &&
             normalizeCurrency(alloc.service_currency) !== serviceCurrency
@@ -1625,7 +1702,7 @@ export default async function handler(
                 "La moneda de serviceAllocations no coincide con la moneda del servicio.",
             });
           }
-          if (paymentCurrency && paymentCurrency !== serviceCurrency) {
+          if (isCrossCurrency) {
             if (!Number.isFinite(amountPayment) || amountPayment <= 0) {
               return res.status(400).json({
                 error:
@@ -1638,11 +1715,15 @@ export default async function handler(
             service_id: alloc.service_id,
             amount_service: round2(alloc.amount_service),
             service_currency: serviceCurrency,
-            ...(Number.isFinite(amountPayment) && amountPayment > 0
+            ...(isCrossCurrency &&
+            Number.isFinite(amountPayment) &&
+            amountPayment > 0
               ? { amount_payment: round2(amountPayment) }
               : {}),
             ...(paymentCurrency ? { payment_currency: paymentCurrency } : {}),
-            ...(Number.isFinite(alloc.fx_rate) && Number(alloc.fx_rate) > 0
+            ...(isCrossCurrency &&
+            Number.isFinite(alloc.fx_rate) &&
+            Number(alloc.fx_rate) > 0
               ? { fx_rate: round2(Number(alloc.fx_rate)) }
               : {}),
           });
@@ -1775,17 +1856,6 @@ export default async function handler(
         const hasBaseForMixed =
           isNonEmptyString(baseCurrencyISO) && toNum(base_amount) > 0;
 
-        if (
-          existing.bookingId_booking &&
-          hasMixedPaymentCurrencies &&
-          !hasBaseForMixed
-        ) {
-          return res.status(400).json({
-            error:
-              "Con cobro en múltiples monedas debés informar valor base y moneda base.",
-          });
-        }
-
         if (currenciesInPayments.length > 0) {
           amountCurrencyISO = normalizeCurrency(
             hasMixedPaymentCurrencies && hasBaseForMixed
@@ -1852,13 +1922,16 @@ export default async function handler(
           const paymentCurrency = normalizeCurrency(
             alloc.payment_currency || serviceCurrency,
           );
+          const isCrossCurrency = paymentCurrency !== serviceCurrency;
           const amountPayment = toNum(alloc.amount_payment);
           const amountService = toNum(alloc.amount_service);
           const amount =
-            Number.isFinite(amountPayment) && amountPayment > 0
+            isCrossCurrency &&
+            Number.isFinite(amountPayment) &&
+            amountPayment > 0
               ? amountPayment
               : amountService;
-          const code = paymentCurrency || serviceCurrency;
+          const code = isCrossCurrency ? paymentCurrency : serviceCurrency;
           acc[code] = round2((acc[code] || 0) + amount);
           return acc;
         }, {});

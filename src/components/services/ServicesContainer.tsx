@@ -192,6 +192,76 @@ function toDateOnly(value?: string | null): string {
   return toDateKeyInBuenosAiresLegacySafe(value ?? null) ?? "";
 }
 
+function normalizeIdList(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  const out: number[] = [];
+  const seen = new Set<number>();
+  for (const raw of value) {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0) continue;
+    const id = Math.trunc(parsed);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+function normalizeServiceAllocationsForEdit(
+  value: unknown,
+): Array<{
+  service_id: number;
+  amount_service: number | string;
+  service_currency?: string | null;
+  amount_payment?: number | string | null;
+  payment_currency?: string | null;
+  fx_rate?: number | string | null;
+}> {
+  if (!Array.isArray(value)) return [];
+  const out: Array<{
+    service_id: number;
+    amount_service: number | string;
+    service_currency?: string | null;
+    amount_payment?: number | string | null;
+    payment_currency?: string | null;
+    fx_rate?: number | string | null;
+  }> = [];
+  for (const row of value) {
+    const rec = isRecord(row) ? row : {};
+    const serviceId = Number(rec.service_id);
+    if (!Number.isFinite(serviceId) || serviceId <= 0) continue;
+    const amountService =
+      typeof rec.amount_service === "number"
+        ? rec.amount_service
+        : Number(rec.amount_service ?? 0);
+    if (!Number.isFinite(amountService) || amountService <= 0) continue;
+
+    const amountPayment =
+      typeof rec.amount_payment === "number"
+        ? rec.amount_payment
+        : Number(rec.amount_payment ?? 0);
+    const fxRate =
+      typeof rec.fx_rate === "number" ? rec.fx_rate : Number(rec.fx_rate ?? 0);
+
+    out.push({
+      service_id: Math.trunc(serviceId),
+      amount_service: amountService,
+      service_currency:
+        typeof rec.service_currency === "string" && rec.service_currency.trim()
+          ? rec.service_currency
+          : "ARS",
+      ...(Number.isFinite(amountPayment) && amountPayment > 0
+        ? { amount_payment: amountPayment }
+        : {}),
+      ...(typeof rec.payment_currency === "string" && rec.payment_currency.trim()
+        ? { payment_currency: rec.payment_currency }
+        : {}),
+      ...(Number.isFinite(fxRate) && fxRate > 0 ? { fx_rate: fxRate } : {}),
+    });
+  }
+  return out;
+}
+
 type AnyRecord = Record<string, unknown>;
 
 function isRecord(v: unknown): v is AnyRecord {
@@ -826,13 +896,12 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   );
 
   const saleTotalCurrencies = useMemo(() => {
-    const set = new Set<string>();
+    const set = new Set<string>(["ARS", "USD"]);
     for (const svc of services) {
       const cur = String(svc.currency || "ARS").toUpperCase();
       if (cur) set.add(cur);
     }
     Object.keys(bookingSaleTotals).forEach((cur) => set.add(cur));
-    if (set.size === 0) set.add("ARS");
     return Array.from(set);
   }, [services, bookingSaleTotals]);
 
@@ -976,6 +1045,21 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   const [operatorDuesLoading, setOperatorDuesLoading] = useState(false);
   const [editingReceipt, setEditingReceipt] = useState<Receipt | null>(null);
   const [receiptFormVisible, setReceiptFormVisible] = useState(false);
+  const editingReceiptServiceIds = useMemo(() => {
+    if (!editingReceipt) return [];
+    const fromServiceIds = normalizeIdList(editingReceipt.serviceIds);
+    if (fromServiceIds.length > 0) return fromServiceIds;
+    return normalizeServiceAllocationsForEdit(
+      editingReceipt.service_allocations,
+    ).map((alloc) => alloc.service_id);
+  }, [editingReceipt]);
+  const editingReceiptServiceAllocations = useMemo(
+    () =>
+      normalizeServiceAllocationsForEdit(
+        editingReceipt?.service_allocations,
+      ),
+    [editingReceipt],
+  );
   const bookingServiceIds = useMemo(() => {
     const ids = new Set<number>();
     for (const service of services) {
@@ -1183,6 +1267,65 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     return true;
   }, []);
 
+  const hydrateReceiptForEdit = useCallback(
+    async (receipt: Receipt): Promise<ReceiptWithPayments | null> => {
+      if (!token) return null;
+      try {
+        const receiptKey = receipt.public_id ?? receipt.id_receipt;
+        const res = await authFetch(
+          `/api/receipts/${receiptKey}`,
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) return null;
+
+        const json: unknown = await res.json().catch(() => null);
+        const rawReceipt =
+          (isRecord(json) && isRecord(json.receipt) ? json.receipt : null) ||
+          (isRecord(json) &&
+          isRecord(json.data) &&
+          isRecord(json.data.receipt)
+            ? json.data.receipt
+            : null);
+        if (!rawReceipt) return null;
+
+        const parsedId = Number(rawReceipt.id_receipt ?? rawReceipt.id);
+        const resolvedId =
+          Number.isFinite(parsedId) && parsedId > 0
+            ? Math.trunc(parsedId)
+            : receipt.id_receipt;
+        const serviceIds = normalizeIdList(
+          rawReceipt.serviceIds ?? receipt.serviceIds,
+        );
+        const clientIds = normalizeIdList(rawReceipt.clientIds ?? receipt.clientIds);
+        const serviceAllocations = normalizeServiceAllocationsForEdit(
+          rawReceipt.service_allocations,
+        );
+        const payments = Array.isArray(rawReceipt.payments)
+          ? rawReceipt.payments
+          : Array.isArray((receipt as ReceiptWithPayments).payments)
+            ? (receipt as ReceiptWithPayments).payments
+            : [];
+
+        return {
+          ...receipt,
+          ...(rawReceipt as Partial<ReceiptWithPayments>),
+          id_receipt: resolvedId,
+          receipt_number: String(
+            rawReceipt.receipt_number ?? rawReceipt.number ?? receipt.receipt_number,
+          ),
+          serviceIds,
+          clientIds,
+          service_allocations: serviceAllocations,
+          payments,
+        };
+      } catch {
+        return null;
+      }
+    },
+    [token],
+  );
+
   const startEditReceipt = useCallback(
     (receipt: Receipt) => {
       setEditingReceipt(receipt);
@@ -1202,8 +1345,22 @@ export default function ServicesContainer(props: ServicesContainerProps) {
       window.requestAnimationFrame(() => {
         window.setTimeout(runScrollAttempt, 80);
       });
+
+      void (async () => {
+        const hydrated = await hydrateReceiptForEdit(receipt);
+        if (!hydrated) return;
+        setEditingReceipt((current) => {
+          if (!current) return current;
+          const currentId = Number(current.id_receipt);
+          const targetId = Number(receipt.id_receipt);
+          if (!Number.isFinite(currentId) || !Number.isFinite(targetId))
+            return current;
+          if (Math.trunc(currentId) !== Math.trunc(targetId)) return current;
+          return hydrated;
+        });
+      })();
     },
-    [scrollToReceiptForm],
+    [hydrateReceiptForEdit, scrollToReceiptForm],
   );
 
   const cancelEditReceipt = useCallback(() => {
@@ -2574,7 +2731,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                         bookingDisplayId={booking.agency_booking_id ?? undefined}
                         allowAgency={false}
                         enableAttachAction={!editingReceipt}
-                        initialServiceIds={editingReceipt?.serviceIds ?? []}
+                        initialServiceIds={editingReceiptServiceIds}
                         initialConcept={editingReceipt?.concept ?? ""}
                         initialAmount={
                           editingReceipt
@@ -2616,7 +2773,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                         }
                         initialClientIds={editingReceipt?.clientIds ?? []}
                         initialServiceAllocations={
-                          editingReceipt?.service_allocations ?? []
+                          editingReceiptServiceAllocations
                         }
                         initialPayments={
                           editingReceipt
@@ -2634,8 +2791,23 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                           // Mapper seguro
                           const mapToLite = (
                             arr: ReadonlyArray<BookingServiceItem>,
-                          ): ServiceLite[] =>
-                            (arr || []).map((s) => {
+                          ): ServiceLite[] => {
+                            const toAmountLoose = (value: unknown): number => {
+                              if (typeof value === "number")
+                                return Number.isFinite(value) ? value : 0;
+                              if (typeof value === "string") {
+                                const parsed = parseAmountInput(value);
+                                if (parsed != null && Number.isFinite(parsed)) {
+                                  return parsed;
+                                }
+                                const numeric = Number(value.replace(",", "."));
+                                return Number.isFinite(numeric) ? numeric : 0;
+                              }
+                              const numeric = Number(value);
+                              return Number.isFinite(numeric) ? numeric : 0;
+                            };
+
+                            return (arr || []).map((s) => {
                               const rawId = s?.id_service ?? s?.id ?? 0;
                               const id =
                                 typeof rawId === "number"
@@ -2652,30 +2824,18 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                               const currency = String(
                                 s?.currency ?? s?.sale_currency ?? "ARS",
                               ).toUpperCase();
-                              const sale =
-                                typeof s?.sale_price === "number"
-                                  ? s.sale_price
-                                  : Number(s?.sale_price ?? 0);
-                              const cost =
-                                typeof s?.cost_price === "number"
-                                  ? s.cost_price
-                                  : Number(s?.cost_price ?? 0);
-                              const cardInt =
-                                typeof s?.card_interest === "number"
-                                  ? s.card_interest
-                                  : Number(s?.card_interest ?? 0);
-                              const cardBase =
-                                typeof s?.taxableCardInterest === "number"
-                                  ? s.taxableCardInterest
-                                  : Number(s?.taxableCardInterest ?? 0);
-                              const cardVat =
-                                typeof s?.vatOnCardInterest === "number"
-                                  ? s.vatOnCardInterest
-                                  : Number(s?.vatOnCardInterest ?? 0);
-                              const pendingAmount =
-                                typeof s?.pending_amount === "number"
-                                  ? s.pending_amount
-                                  : Number(s?.pending_amount ?? 0);
+                              const sale = toAmountLoose(s?.sale_price);
+                              const cost = toAmountLoose(s?.cost_price);
+                              const cardInt = toAmountLoose(s?.card_interest);
+                              const cardBase = toAmountLoose(
+                                s?.taxableCardInterest,
+                              );
+                              const cardVat = toAmountLoose(
+                                s?.vatOnCardInterest,
+                              );
+                              const pendingAmount = toAmountLoose(
+                                s?.pending_amount,
+                              );
 
                               return {
                                 id_service: Number.isFinite(id) ? id : 0,
@@ -2689,7 +2849,10 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                                     ? `Servicio ${id}`
                                     : "Servicio"),
                                 currency,
-                                sale_price: sale > 0 ? sale : undefined,
+                                sale_price:
+                                  Number.isFinite(sale) && sale > 0
+                                    ? sale
+                                    : undefined,
                                 cost_price:
                                   Number.isFinite(cost) && cost > 0
                                     ? cost
@@ -2716,6 +2879,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                                   s?.destination ?? s?.destino ?? undefined,
                               };
                             });
+                          };
 
                           const parseJsonToArray = (
                             json: unknown,

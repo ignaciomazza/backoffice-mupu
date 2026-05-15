@@ -784,6 +784,13 @@ export default async function handler(
         payment_fee_amount: true,
         base_amount: true,
         base_currency: true,
+        payments: {
+          select: {
+            amount: true,
+            payment_currency: true,
+            fee_amount: true,
+          },
+        },
         serviceIds: true,
         service_allocations: {
           select: {
@@ -807,23 +814,95 @@ export default async function handler(
     for (const r of allReceipts) {
       const bid = r.bookingId_booking;
       if (bid == null) continue; // evita TS2345 y casos sin booking
-      const useBase = r.base_amount != null && r.base_currency;
-      const cur = String(
-        useBase ? r.base_currency : r.amount_currency || "",
-      )
-        .trim()
-        .toUpperCase();
-      if (!isCurrencyAllowed(cur)) continue;
-      const prev = receiptsMap.get(bid) || {};
-      const val = Number(useBase ? r.base_amount : r.amount) || 0;
-      prev[cur] = (prev[cur] || 0) + val;
-      receiptsMap.set(bid, prev);
-
       const methodLabel =
         (r.payment_method || "").trim() ||
         (r.payment_method_id ? `Metodo #${r.payment_method_id}` : "Sin metodo");
+      const amountCurrency = String(r.amount_currency || "").trim().toUpperCase();
+      const baseCurrency = String(r.base_currency || "").trim().toUpperCase();
+      const amountValue = Number(r.amount || 0) || 0;
+      const feeValue = Number(r.payment_fee_amount || 0) || 0;
+      const baseValue = Number(r.base_amount || 0) || 0;
+      const paymentLines = Array.isArray(r.payments) ? r.payments : [];
+      const paidByCurrency: Record<string, number> = {};
+      const addPaidCurrency = (currencyCodeRaw: string, amountRaw: number) => {
+        const currencyCode = String(currencyCodeRaw || "")
+          .trim()
+          .toUpperCase();
+        if (!currencyCode) return;
+        if (!Number.isFinite(amountRaw) || Math.abs(amountRaw) <= PENDING_TOLERANCE)
+          return;
+        paidByCurrency[currencyCode] = round2(
+          (paidByCurrency[currencyCode] || 0) + amountRaw,
+        );
+      };
+
+      if (baseCurrency && Math.abs(baseValue) > PENDING_TOLERANCE) {
+        const lineTotalsByCurrency: Record<string, number> = {};
+        let lineFeeTotal = 0;
+        for (const line of paymentLines) {
+          const lineCurrency = String(line?.payment_currency || amountCurrency || "")
+            .trim()
+            .toUpperCase();
+          if (!lineCurrency) continue;
+          const lineAmount = Number(line?.amount || 0) || 0;
+          const lineFee = Number(line?.fee_amount || 0) || 0;
+          lineFeeTotal += lineFee;
+          const total = lineAmount + lineFee;
+          if (Math.abs(total) <= PENDING_TOLERANCE) continue;
+          lineTotalsByCurrency[lineCurrency] = round2(
+            (lineTotalsByCurrency[lineCurrency] || 0) + total,
+          );
+        }
+        const feeRemainder = feeValue - lineFeeTotal;
+        const hasDirectBasePaymentLine =
+          Math.abs(lineTotalsByCurrency[baseCurrency] || 0) > PENDING_TOLERANCE;
+
+        addPaidCurrency(
+          baseCurrency,
+          baseValue + (baseCurrency === amountCurrency ? feeValue : 0),
+        );
+
+        if (hasDirectBasePaymentLine) {
+          for (const [lineCurrency, total] of Object.entries(lineTotalsByCurrency)) {
+            if (lineCurrency === baseCurrency) continue;
+            addPaidCurrency(lineCurrency, total);
+          }
+          if (
+            Math.abs(feeRemainder) > PENDING_TOLERANCE &&
+            amountCurrency &&
+            amountCurrency !== baseCurrency
+          ) {
+            addPaidCurrency(amountCurrency, feeRemainder);
+          }
+        }
+      } else if (paymentLines.length > 0) {
+        let lineFeeTotal = 0;
+        for (const line of paymentLines) {
+          const lineCurrency = String(line?.payment_currency || amountCurrency || "")
+            .trim()
+            .toUpperCase();
+          if (!lineCurrency) continue;
+          const lineAmount = Number(line?.amount || 0) || 0;
+          const lineFee = Number(line?.fee_amount || 0) || 0;
+          lineFeeTotal += lineFee;
+          addPaidCurrency(lineCurrency, lineAmount + lineFee);
+        }
+        const feeRemainder = feeValue - lineFeeTotal;
+        if (Math.abs(feeRemainder) > PENDING_TOLERANCE && amountCurrency) {
+          addPaidCurrency(amountCurrency, feeRemainder);
+        }
+      } else if (amountCurrency) {
+        addPaidCurrency(amountCurrency, amountValue + feeValue);
+      }
+
+      const prev = receiptsMap.get(bid) || {};
       const list = receiptsByBookingMethod.get(bid) || [];
-      list.push({ methodLabel, currency: cur, amount: val });
+      for (const [cur, val] of Object.entries(paidByCurrency)) {
+        if (!isCurrencyAllowed(cur)) continue;
+        prev[cur] = round2((prev[cur] || 0) + val);
+        list.push({ methodLabel, currency: cur, amount: val });
+      }
+      receiptsMap.set(bid, prev);
       receiptsByBookingMethod.set(bid, list);
 
       const bookingServiceIds = serviceIdsByBooking.get(bid) || [];
@@ -833,7 +912,6 @@ export default async function handler(
       const allocations = Array.isArray(r.service_allocations)
         ? r.service_allocations
         : [];
-
       let appliedAllocation = false;
       if (allocations.length > 0) {
         for (const alloc of allocations) {
@@ -859,44 +937,17 @@ export default async function handler(
       const effectiveScopedServiceIds =
         scopedServiceIds.length > 0 ? scopedServiceIds : bookingServiceIds;
 
-      const amountCurrency = String(r.amount_currency || "").trim().toUpperCase();
-      const baseCurrency = String(r.base_currency || "").trim().toUpperCase();
-      const amountValue = Number(r.amount || 0) || 0;
-      const feeValue = Number(r.payment_fee_amount || 0) || 0;
-      const baseValue = Number(r.base_amount || 0) || 0;
-
-      let distributed = false;
-      if (baseCurrency && Math.abs(baseValue) > PENDING_TOLERANCE) {
-        const baseServiceIds = effectiveScopedServiceIds.filter((serviceId) => {
+      for (const [currencyCode, totalPaid] of Object.entries(paidByCurrency)) {
+        const amountServiceIds = effectiveScopedServiceIds.filter((serviceId) => {
           const serviceCurrency = String(
             serviceById.get(serviceId)?.currency || "",
           )
             .trim()
             .toUpperCase();
-          return serviceCurrency === baseCurrency;
+          return serviceCurrency === currencyCode;
         });
-        if (baseServiceIds.length > 0) {
-          const total =
-            baseValue + (baseCurrency === amountCurrency ? feeValue : 0);
-          distributeByServiceWeight(baseServiceIds, total);
-          distributed = true;
-        }
-      }
-
-      if (!distributed && amountCurrency) {
-        const amountServiceIds = effectiveScopedServiceIds.filter(
-          (serviceId) => {
-            const serviceCurrency = String(
-              serviceById.get(serviceId)?.currency || "",
-            )
-              .trim()
-              .toUpperCase();
-            return serviceCurrency === amountCurrency;
-          },
-        );
-        if (amountServiceIds.length > 0) {
-          distributeByServiceWeight(amountServiceIds, amountValue + feeValue);
-        }
+        if (amountServiceIds.length === 0) continue;
+        distributeByServiceWeight(amountServiceIds, totalPaid);
       }
     }
 

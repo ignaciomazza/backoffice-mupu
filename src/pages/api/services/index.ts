@@ -514,6 +514,13 @@ export default async function handler(
             payment_fee_amount: true,
             base_amount: true,
             base_currency: true,
+            payments: {
+              select: {
+                amount: true,
+                payment_currency: true,
+                fee_amount: true,
+              },
+            },
             serviceIds: true,
             service_allocations: {
               select: {
@@ -561,38 +568,99 @@ export default async function handler(
           const amountValue = toNullableNumber(receipt.amount) || 0;
           const feeValue = toNullableNumber(receipt.payment_fee_amount) || 0;
           const baseValue = toNullableNumber(receipt.base_amount) || 0;
+          const paymentLines = Array.isArray(receipt.payments)
+            ? receipt.payments
+            : [];
+          const paidByCurrency: Record<string, number> = {};
 
-          let distributed = false;
+          const addPaidCurrency = (currencyCodeRaw: string, amountRaw: number) => {
+            const currencyCode = String(currencyCodeRaw || "")
+              .trim()
+              .toUpperCase();
+            if (!currencyCode) return;
+            if (!Number.isFinite(amountRaw) || Math.abs(amountRaw) <= PENDING_TOLERANCE)
+              return;
+            paidByCurrency[currencyCode] = round2(
+              (paidByCurrency[currencyCode] || 0) + amountRaw,
+            );
+          };
+
           if (baseCurrency && Math.abs(baseValue) > PENDING_TOLERANCE) {
-            const baseServiceIds = effectiveScopedServiceIds.filter((serviceId) => {
-              const serviceCurrency = String(
-                serviceById.get(serviceId)?.currency || "",
+            const lineTotalsByCurrency: Record<string, number> = {};
+            let lineFeeTotal = 0;
+            for (const line of paymentLines) {
+              const lineCurrency = String(
+                line?.payment_currency || amountCurrency || "",
               )
                 .trim()
                 .toUpperCase();
-              return serviceCurrency === baseCurrency;
-            });
-            if (baseServiceIds.length > 0) {
-              const baseTotal =
-                baseValue +
-                (baseCurrency === amountCurrency ? feeValue : 0);
-              distributeByWeight(baseServiceIds, baseTotal);
-              distributed = true;
+              if (!lineCurrency) continue;
+              const lineAmount = toNullableNumber(line?.amount) || 0;
+              const lineFee = toNullableNumber(line?.fee_amount) || 0;
+              lineFeeTotal += lineFee;
+              const total = lineAmount + lineFee;
+              if (Math.abs(total) <= PENDING_TOLERANCE) continue;
+              lineTotalsByCurrency[lineCurrency] = round2(
+                (lineTotalsByCurrency[lineCurrency] || 0) + total,
+              );
             }
+            const feeRemainder = feeValue - lineFeeTotal;
+            const hasDirectBasePaymentLine =
+              Math.abs(lineTotalsByCurrency[baseCurrency] || 0) > PENDING_TOLERANCE;
+
+            addPaidCurrency(
+              baseCurrency,
+              baseValue + (baseCurrency === amountCurrency ? feeValue : 0),
+            );
+
+            if (hasDirectBasePaymentLine) {
+              for (const [lineCurrency, total] of Object.entries(
+                lineTotalsByCurrency,
+              )) {
+                if (lineCurrency === baseCurrency) continue;
+                addPaidCurrency(lineCurrency, total);
+              }
+              if (
+                Math.abs(feeRemainder) > PENDING_TOLERANCE &&
+                amountCurrency &&
+                amountCurrency !== baseCurrency
+              ) {
+                addPaidCurrency(amountCurrency, feeRemainder);
+              }
+            }
+          } else if (paymentLines.length > 0) {
+            let lineFeeTotal = 0;
+            for (const line of paymentLines) {
+              const lineCurrency = String(
+                line?.payment_currency || amountCurrency || "",
+              )
+                .trim()
+                .toUpperCase();
+              if (!lineCurrency) continue;
+              const lineAmount = toNullableNumber(line?.amount) || 0;
+              const lineFee = toNullableNumber(line?.fee_amount) || 0;
+              lineFeeTotal += lineFee;
+              addPaidCurrency(lineCurrency, lineAmount + lineFee);
+            }
+            const feeRemainder = feeValue - lineFeeTotal;
+            if (Math.abs(feeRemainder) > PENDING_TOLERANCE && amountCurrency) {
+              addPaidCurrency(amountCurrency, feeRemainder);
+            }
+          } else if (amountCurrency) {
+            addPaidCurrency(amountCurrency, amountValue + feeValue);
           }
 
-          if (!distributed && amountCurrency) {
-            const amountServiceIds = effectiveScopedServiceIds.filter((serviceId) => {
+          for (const [currencyCode, totalPaid] of Object.entries(paidByCurrency)) {
+            const currencyServiceIds = effectiveScopedServiceIds.filter((serviceId) => {
               const serviceCurrency = String(
                 serviceById.get(serviceId)?.currency || "",
               )
                 .trim()
                 .toUpperCase();
-              return serviceCurrency === amountCurrency;
+              return serviceCurrency === currencyCode;
             });
-            if (amountServiceIds.length > 0) {
-              distributeByWeight(amountServiceIds, amountValue + feeValue);
-            }
+            if (currencyServiceIds.length === 0) continue;
+            distributeByWeight(currencyServiceIds, totalPaid);
           }
         }
       }

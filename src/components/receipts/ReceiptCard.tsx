@@ -87,6 +87,13 @@ const fmtMoney = (v?: number | string | null, curr?: string | null) => {
   }
 };
 
+const formatCurrencyBreakdown = (totals: Record<string, number>) => {
+  const parts = Object.entries(totals)
+    .filter(([, value]) => Math.abs(value) > 0.000001)
+    .map(([currency, value]) => fmtMoney(value, currency));
+  return parts.length ? parts.join(" + ") : "";
+};
+
 const slugify = (s: string) =>
   (s || "")
     .toLowerCase()
@@ -124,6 +131,11 @@ const cleanServiceDescription = (value: unknown) => {
     "",
   );
   return withoutNumberList.replace(/[,\s-]+$/g, "").trim();
+};
+
+type ReceiptPaymentLike = {
+  amount?: number | string | null;
+  payment_currency?: string | null;
 };
 
 /* ======================== Micro-componentes ======================== */
@@ -230,6 +242,21 @@ export default function ReceiptCard({
     const decoded = decodeReceiptPdfItemsPayload(receipt.currency || "");
     return decoded.paymentDetail || "";
   }, [receipt.currency]);
+  const paymentMethodLabel = useMemo(() => {
+    const shortMethod = String(receipt.payment_method || "").trim();
+    return paymentDetail || shortMethod || "—";
+  }, [paymentDetail, receipt.payment_method]);
+  const showPaymentMethodChip = useMemo(() => {
+    const shortMethod = String(receipt.payment_method || "").trim();
+    if (!shortMethod) return false;
+    if (!paymentDetail.trim()) return true;
+    const normalized = shortMethod
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
+    return !["multiple", "multiples", "mixto", "mixta"].includes(normalized);
+  }, [paymentDetail, receipt.payment_method]);
 
   const getClientName = useCallback(
     (id: number): string => {
@@ -346,6 +373,32 @@ export default function ReceiptCard({
   const displayCurrency = hasBase
     ? receipt.base_currency
     : receipt.amount_currency;
+  const paymentAmountByCurrency = useMemo(() => {
+    const rawPayments = Array.isArray(
+      (receipt as Receipt & { payments?: ReceiptPaymentLike[] }).payments,
+    )
+      ? ((receipt as Receipt & { payments?: ReceiptPaymentLike[] })
+          .payments as ReceiptPaymentLike[])
+      : [];
+    const totals: Record<string, number> = {};
+    for (const line of rawPayments) {
+      const amount = toNumber(line?.amount ?? 0);
+      if (!Number.isFinite(amount) || Math.abs(amount) <= 0) continue;
+      const currency = normCurrency(line?.payment_currency || "ARS");
+      totals[currency] = (totals[currency] || 0) + amount;
+    }
+    return totals;
+  }, [receipt]);
+  const paymentCurrencies = Object.keys(paymentAmountByCurrency).filter(
+    (currency) => Math.abs(paymentAmountByCurrency[currency] || 0) > 0.000001,
+  );
+  const hasMixedPaymentCurrencies = !hasBase && paymentCurrencies.length > 1;
+  const displayAmountBreakdown = hasMixedPaymentCurrencies
+    ? formatCurrencyBreakdown(paymentAmountByCurrency)
+    : "";
+  const mainAmountText = hasMixedPaymentCurrencies
+    ? displayAmountBreakdown
+    : fmtMoney(displayAmount, displayCurrency);
 
   const cashAmount = hasCounter ? receipt.counter_amount : receipt.amount;
   const cashCurrency = hasCounter
@@ -666,11 +719,13 @@ export default function ReceiptCard({
 
   const amountCurrency = normCurrency(displayCurrency);
   const amountLabel =
-    amountCurrency === "ARS"
-      ? "Pesos"
-      : amountCurrency === "USD"
-        ? "Dólares"
-        : amountCurrency;
+    hasMixedPaymentCurrencies
+      ? "Múltiples monedas"
+      : amountCurrency === "ARS"
+        ? "Pesos"
+        : amountCurrency === "USD"
+          ? "Dólares"
+          : amountCurrency;
 
   const compactTotalsLayout = !showCounter && !hasPaymentFee;
 
@@ -680,7 +735,7 @@ export default function ReceiptCard({
         {hasBase ? "Valor aplicado" : "Monto"}
       </p>
       <p className="text-base font-semibold tabular-nums">
-        {fmtMoney(displayAmount, displayCurrency)}
+        {mainAmountText}
       </p>
     </div>
   );
@@ -705,8 +760,7 @@ export default function ReceiptCard({
     >
       <p className="text-xs opacity-70">Método de pago</p>
       <p className="mt-1 text-sm font-medium">
-        {/* currency = detalle legado / texto para PDF; payment_method = nombre corto */}
-        {receipt.payment_method || paymentDetail || "—"}
+        {paymentMethodLabel}
       </p>
     </div>
   );
@@ -761,7 +815,7 @@ export default function ReceiptCard({
               Recibo{" "}
               <span className="font-medium">N° {receiptDisplayNumber}</span>
             </p>
-            {receipt.payment_method ? (
+            {showPaymentMethodChip ? (
               <Chip tone="brand" title="Método de pago">
                 {receipt.payment_method}
               </Chip>

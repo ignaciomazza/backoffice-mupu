@@ -14,6 +14,8 @@ export default function ContextSection(props: {
   action: Action;
   setAction: (a: Action) => void;
   hideContext?: boolean;
+  issueDate: string;
+  setIssueDate: (v: string) => void;
 
   canToggleAgency: boolean;
   mode: Mode;
@@ -51,6 +53,8 @@ export default function ContextSection(props: {
     action,
     setAction,
     hideContext = false,
+    issueDate,
+    setIssueDate,
 
     canToggleAgency,
     mode,
@@ -89,34 +93,77 @@ export default function ContextSection(props: {
           title="Modo"
           desc="Podés crear un recibo nuevo o asociar uno existente a una reserva/servicios."
         >
-          <div className="md:col-span-2">
-            <div className="inline-flex rounded-2xl border border-white/10 bg-white/60 p-1 shadow-sm shadow-sky-950/10 dark:bg-white/10">
-              <button
-                type="button"
-                onClick={() => setAction("create")}
-                className={[
-                  "rounded-xl px-4 py-2 text-sm font-semibold transition-colors",
-                  action === "create"
-                    ? "bg-sky-500/15 text-sky-700 dark:text-sky-200"
-                    : "text-sky-950/80 hover:bg-white/60 dark:text-white/80",
-                ].join(" ")}
+          <div className="md:col-span-2 md:flex md:items-end md:gap-4">
+            <div>
+              <div className="inline-flex rounded-2xl border border-white/10 bg-white/60 p-1 shadow-sm shadow-sky-950/10 dark:bg-white/10">
+                <button
+                  type="button"
+                  onClick={() => setAction("create")}
+                  className={[
+                    "rounded-xl px-4 py-2 text-sm font-semibold transition-colors",
+                    action === "create"
+                      ? "bg-sky-500/15 text-sky-700 dark:text-sky-200"
+                      : "text-sky-950/80 hover:bg-white/60 dark:text-white/80",
+                  ].join(" ")}
+                >
+                  Crear nuevo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAction("attach")}
+                  className={[
+                    "rounded-xl px-4 py-2 text-sm font-semibold transition-colors",
+                    action === "attach"
+                      ? "bg-sky-500/15 text-sky-700 dark:text-sky-200"
+                      : "text-sky-950/80 hover:bg-white/60 dark:text-white/80",
+                  ].join(" ")}
+                >
+                  Asociar existente
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 w-full md:mt-0 md:w-56">
+              <label
+                htmlFor="issue_date"
+                className="ml-1 block text-sm font-medium text-sky-950 dark:text-white"
               >
-                Crear nuevo
-              </button>
-              <button
-                type="button"
-                onClick={() => setAction("attach")}
-                className={[
-                  "rounded-xl px-4 py-2 text-sm font-semibold transition-colors",
-                  action === "attach"
-                    ? "bg-sky-500/15 text-sky-700 dark:text-sky-200"
-                    : "text-sky-950/80 hover:bg-white/60 dark:text-white/80",
-                ].join(" ")}
-              >
-                Asociar existente
-              </button>
+                Fecha <span className="text-rose-600">*</span>
+              </label>
+            <input
+              id="issue_date"
+              type="date"
+              value={issueDate}
+              onChange={(e) => setIssueDate(e.target.value)}
+                className={`${inputBase} h-[42px] cursor-pointer`}
+              required
+            />
+            {errors.issue_date && (
+              <p className="mt-1 text-xs text-red-600">{errors.issue_date}</p>
+            )}
             </div>
           </div>
+        </Section>
+      )}
+
+      {!attachEnabled && (
+        <Section
+          title="Fecha del recibo"
+          desc="Podés cargar recibos con fechas anteriores."
+        >
+          <Field id="issue_date" label="Fecha" required>
+            <input
+              id="issue_date"
+              type="date"
+              value={issueDate}
+              onChange={(e) => setIssueDate(e.target.value)}
+              className={`${inputBase} cursor-pointer`}
+              required
+            />
+            {errors.issue_date && (
+              <p className="mt-1 text-xs text-red-600">{errors.issue_date}</p>
+            )}
+          </Field>
         </Section>
       )}
 
@@ -130,7 +177,7 @@ export default function ContextSection(props: {
                 : "Elegí la reserva y los servicios a los que querés asociar el recibo."
               : serviceSelectionMode === "booking"
                 ? "Podés asociarlo a una reserva. Los servicios se tomarán automáticamente."
-                : "Podés asociarlo a una reserva y elegir servicios, o crearlo como recibo de agencia."
+                : undefined
           }
         >
           {canToggleAgency && (

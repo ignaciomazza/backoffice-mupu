@@ -380,6 +380,9 @@ export interface Receipt {
     service_id: number;
     amount_service: number | string;
     service_currency?: string | null;
+    amount_payment?: number | string | null;
+    payment_currency?: string | null;
+    fx_rate?: number | string | null;
   }>;
   clientIds?: number[];
 }
