@@ -40,6 +40,14 @@ type PaymentDraft = {
   credit_account_id: number | null;
 };
 
+type ManualPdfItemDraft = {
+  key: string;
+  description: string;
+  date_label: string;
+};
+
+type IconProps = React.SVGProps<SVGSVGElement>;
+
 const sanitizePercentInput = (raw: string): string => {
   const cleaned = String(raw || "").replace(/[^\d.,]/g, "");
   if (!cleaned) return "";
@@ -82,6 +90,8 @@ export default function GroupCreateReceiptFields(props: {
   currencies: FinanceCurrency[];
   effectiveCurrency: CurrencyCode;
   currencyOverride: boolean;
+  conversionEnabled?: boolean;
+  setConversionEnabled?: (next: boolean) => void;
 
   suggestions: {
     base: number | null;
@@ -127,6 +137,15 @@ export default function GroupCreateReceiptFields(props: {
 
   paymentDescription: string;
   setPaymentDescription: (v: string) => void;
+  manualPdfItemsEnabled?: boolean;
+  setManualPdfItemsEnabled?: (next: boolean) => void;
+  manualPdfItems?: ManualPdfItemDraft[];
+  manualPdfFreeText?: string;
+  addManualPdfItem?: () => void;
+  removeManualPdfItem?: (key: string) => void;
+  setManualPdfItemDescription?: (key: string, value: string) => void;
+  setManualPdfItemDateLabel?: (key: string, value: string) => void;
+  setManualPdfFreeText?: (value: string) => void;
 
   concept: string;
   setConcept: (v: string) => void;
@@ -159,8 +178,6 @@ export default function GroupCreateReceiptFields(props: {
     excludeForIndex,
 
     amountReceived,
-    feeAmount,
-    clientTotal,
 
     lockedCurrency,
     loadingPicks,
@@ -168,9 +185,9 @@ export default function GroupCreateReceiptFields(props: {
     currencies,
     effectiveCurrency,
     currencyOverride,
+    conversionEnabled = currencyOverride,
+    setConversionEnabled = () => {},
 
-    suggestions,
-    applySuggestedAmounts,
     formatNum,
 
     amountWords,
@@ -202,6 +219,15 @@ export default function GroupCreateReceiptFields(props: {
 
     paymentDescription,
     setPaymentDescription,
+    manualPdfItemsEnabled = false,
+    setManualPdfItemsEnabled = () => {},
+    manualPdfItems = [],
+    manualPdfFreeText = "",
+    addManualPdfItem = () => {},
+    removeManualPdfItem = () => {},
+    setManualPdfItemDescription = () => {},
+    setManualPdfItemDateLabel = () => {},
+    setManualPdfFreeText = () => {},
 
     concept,
     setConcept,
@@ -231,138 +257,76 @@ export default function GroupCreateReceiptFields(props: {
   return (
     <>
       <Section
-        title={lockClientSelection ? "Pasajero" : "Pasajeros"}
+        title={lockClientSelection ? "Pasajero y fecha" : "Pasajeros y fecha"}
         desc={
           lockClientSelection
-            ? "El recibo se emite sobre el pasajero activo."
+            ? "El recibo se emite sobre el pasajero activo seleccionado en la grupal."
             : "Podés adjudicar el recibo a uno o varios pasajeros (opcional)."
         }
       >
-        {lockClientSelection ? (
-          <div className="rounded-2xl border border-emerald-300/70 bg-emerald-50/35 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-500/70 dark:bg-emerald-900/20 dark:text-emerald-100 md:col-span-2">
-            <span className="font-semibold">
-              {lockedClientLabel || "Pasajero activo"}
-            </span>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 pl-1 md:col-span-2">
-            <button
-              type="button"
-              onClick={onDecClient}
-              className="rounded-full border border-sky-300/80 bg-sky-100/80 px-2 py-1 text-[13px] font-semibold text-sky-900 shadow-sm shadow-sky-100/60 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-700 dark:bg-sky-900/25 dark:text-sky-100 md:text-sm"
-              disabled={clientsCount <= 1}
-            >
-              −
-            </button>
-            <span className="rounded-full border border-sky-200/70 bg-sky-50/45 px-3 py-1 text-[13px] font-medium text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-200 md:text-sm">
-              {clientsCount}
-            </span>
-            <button
-              type="button"
-              onClick={onIncClient}
-              className="rounded-full border border-sky-300/80 bg-sky-100/80 px-2 py-1 text-[13px] font-semibold text-sky-900 shadow-sm shadow-sky-100/60 transition active:scale-[0.98] dark:border-sky-700 dark:bg-sky-900/25 dark:text-sky-100 md:text-sm"
-            >
-              +
-            </button>
-          </div>
-        )}
-
-        {!lockClientSelection ? (
-          <div className="space-y-3 md:col-span-2">
-            {Array.from({ length: clientsCount }).map((_, idx) => (
-              <div key={idx} className="pl-1">
-                <ClientPicker
-                  token={token}
-                  label={`Pax ${idx + 1}`}
-                  placeholder="Buscar por Nº interno, DNI, Pasaporte, CUIT o nombre..."
-                  valueId={clientIds[idx] ?? null}
-                  excludeIds={excludeForIndex(idx)}
-                  onSelect={(c) => setClientAt(idx, c)}
-                  onClear={() => setClientAt(idx, null)}
-                />
+        <div className="space-y-3">
+          {lockClientSelection ? (
+            <div className="rounded-2xl border border-emerald-300/70 bg-emerald-50/35 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-500/70 dark:bg-emerald-900/20 dark:text-emerald-100">
+              <span className="font-semibold">
+                {lockedClientLabel || "Pasajero activo"}
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 pl-1">
+                <button
+                  type="button"
+                  onClick={onDecClient}
+                  className="rounded-full border border-sky-300/80 bg-sky-100/80 px-2 py-1 text-[13px] font-semibold text-sky-900 shadow-sm shadow-sky-100/60 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-700 dark:bg-sky-900/25 dark:text-sky-100 md:text-sm"
+                  disabled={clientsCount <= 1}
+                >
+                  −
+                </button>
+                <span className="rounded-full border border-sky-200/70 bg-sky-50/45 px-3 py-1 text-[13px] font-medium text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-200 md:text-sm">
+                  {clientsCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={onIncClient}
+                  className="rounded-full border border-sky-300/80 bg-sky-100/80 px-2 py-1 text-[13px] font-semibold text-sky-900 shadow-sm shadow-sky-100/60 transition active:scale-[0.98] dark:border-sky-700 dark:bg-sky-900/25 dark:text-sky-100 md:text-sm"
+                >
+                  +
+                </button>
               </div>
-            ))}
-          </div>
-        ) : null}
-      </Section>
 
-      <Section
-        title="Fecha del recibo"
-        desc="Podés cargar recibos con fechas anteriores."
-      >
-        <Field id="issue_date" label="Fecha" required>
-          <input
-            id="issue_date"
-            type="date"
-            value={issueDate}
-            onChange={(e) => setIssueDate(e.target.value)}
-            className={`${inputBase} cursor-pointer`}
-            required
-          />
-          {errors.issue_date && (
-            <p className="mt-1 text-xs text-red-600">{errors.issue_date}</p>
+              <div className="space-y-3">
+                {Array.from({ length: clientsCount }).map((_, idx) => (
+                  <div key={idx} className="pl-1">
+                    <ClientPicker
+                      token={token}
+                      label={`Pax ${idx + 1}`}
+                      placeholder="Buscar por Nº interno, DNI, Pasaporte, CUIT o nombre..."
+                      valueId={clientIds[idx] ?? null}
+                      excludeIds={excludeForIndex(idx)}
+                      onSelect={(c) => setClientAt(idx, c)}
+                      onClear={() => setClientAt(idx, null)}
+                    />
+                  </div>
+                ))}
+              </div>
+            </>
           )}
-        </Field>
-      </Section>
-
-      <Section
-        title="Totales del cobro"
-        desc="Resumen automático a partir de las líneas cargadas."
-      >
-        <div className="grid gap-3 md:col-span-2 md:grid-cols-3">
-          <article className="rounded-2xl border border-sky-200/70 bg-sky-50/45 px-4 py-3 dark:border-sky-900/40 dark:bg-slate-900/55">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-              Total cobrado
-            </p>
-            <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
-              {amountReceived || "—"}
-            </p>
-            <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
-              Neto que entra a caja/banco.
-            </p>
-          </article>
-
-          <article className="rounded-2xl border border-sky-200/70 bg-sky-50/45 px-4 py-3 dark:border-sky-900/40 dark:bg-slate-900/55">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-              Ajustes del cobro
-            </p>
-            <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
-              {feeAmount || "—"}
-            </p>
-            <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
-              Sumatoria de ajustes por pago.
-            </p>
-          </article>
-
-          <article className="rounded-2xl border border-sky-200/70 bg-sky-50/45 px-4 py-3 dark:border-sky-900/40 dark:bg-slate-900/55">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-              Total cliente
-            </p>
-            <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
-              {clientTotal || "—"}
-            </p>
-            <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
-              Cobro + ajustes.
-            </p>
-          </article>
         </div>
 
-        <div className="md:col-span-2">
-          {errors.amount && (
-            <p className="mt-1 text-xs text-red-600">{errors.amount}</p>
-          )}
-          {suggestions?.base != null && (
-            <button
-              type="button"
-              onClick={applySuggestedAmounts}
-              className="mt-2 text-xs underline underline-offset-2"
-            >
-              {currencyOverride
-                ? "Usar valor base sugerido:"
-                : "Ajustar al sugerido:"}{" "}
-              {formatNum(suggestions.base, lockedCurrency || effectiveCurrency)}
-            </button>
-          )}
+        <div className="md:w-full md:max-w-[260px] md:justify-self-end">
+          <Field id="issue_date" label="Fecha" required>
+            <input
+              id="issue_date"
+              type="date"
+              value={issueDate}
+              onChange={(e) => setIssueDate(e.target.value)}
+              className={`${inputBase} cursor-pointer`}
+              required
+            />
+            {errors.issue_date && (
+              <p className="mt-1 text-xs text-red-600">{errors.issue_date}</p>
+            )}
+          </Field>
         </div>
       </Section>
 
@@ -373,6 +337,9 @@ export default function GroupCreateReceiptFields(props: {
         <div className="space-y-3 md:col-span-2">
           {errors.payments && (
             <p className="text-xs text-red-600">{errors.payments}</p>
+          )}
+          {errors.amount && (
+            <p className="text-xs text-red-600">{errors.amount}</p>
           )}
 
           {paymentLines.map((line, idx) => {
@@ -766,174 +733,183 @@ export default function GroupCreateReceiptFields(props: {
         </div>
       </Section>
 
-      {currencyOverride && (
-        <Section
-          title="Conversión (opcional)"
-          desc="Usalo si cobrás en una moneda distinta al servicio."
-        >
-          <div className="rounded-2xl border border-sky-200/70 bg-sky-50/45 p-4 text-xs text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-300 md:col-span-2">
-            <p>
-              Servicio en {lockedCurrency}.{" "}
-              {hasMixedPaymentCurrencies
-                ? "Cobro en múltiples monedas."
-                : `Cobro en ${effectiveCurrency}.`}{" "}
-              El PDF mostrará el valor base.
-            </p>
-            <div className="mt-2 grid gap-1 text-[11px]">
-              <div>
-                <span className="font-medium">Recibo (PDF):</span>{" "}
-                {fmtMaybe(baseAmount, baseNum, baseCurrency || lockedCurrency)}
-              </div>
-              <div>
-                <span className="font-medium">
-                  Administración (entra al banco/caja):
-                </span>{" "}
-                {amountReceived || "—"}
-              </div>
-              <div>
-                <span className="font-medium">Contravalor:</span>{" "}
-                {counterAmount.trim()
-                  ? fmtMaybe(
-                      counterAmount,
-                      counterNum,
-                      counterCurrency || effectiveCurrency,
-                    )
-                  : hasMixedPaymentCurrencies
-                    ? "—"
-                    : amountReceived || "—"}
-              </div>
-            </div>
-            {hasMixedPaymentCurrencies ? (
-              <p className="mt-2 text-[10px] opacity-70">
-                Con cobro en múltiples monedas, cargá el contravalor manualmente.
-              </p>
-            ) : (
-              <p className="mt-2 text-[10px] opacity-70">
-                Si dejás contravalor vacío, se toma el total cobrado.
-              </p>
-            )}
-          </div>
-
-          <Field
-            id="base"
-            label="Valor base (moneda del servicio)"
-            hint="Ej.: 1500 USD (si es pago parcial, ingresá el parcial)."
+      <Section
+        title="Conversión (opcional)"
+        desc="Disponible siempre. Activala cuando quieras reflejar contravalor."
+        headerRight={
+          <button
+            type="button"
+            role="switch"
+            aria-checked={conversionEnabled}
+            onClick={() => setConversionEnabled(!conversionEnabled)}
+            className={[
+              "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+              conversionEnabled
+                ? "bg-sky-500/70"
+                : "bg-sky-950/20 dark:bg-white/20",
+            ].join(" ")}
           >
-            <div className="flex gap-2">
-              <input
-                value={baseAmount}
-                onChange={(e) =>
-                  setBaseAmount(
-                    formatMoneyInput(
-                      e.target.value,
-                      baseCurrency || lockedCurrency || effectiveCurrency,
-                      { preferDotDecimal: shouldPreferDotDecimal(e) },
-                    ),
-                  )
-                }
-                placeholder="1500"
-                className={inputBase}
-              />
-              <select
-                value={baseCurrency}
-                onChange={(e) => {
-                  const nextCurrency = e.target.value;
-                  setBaseCurrency(nextCurrency);
-                  if (baseAmount.trim()) {
+            <span
+              className={[
+                "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform",
+                conversionEnabled ? "translate-x-5" : "translate-x-1",
+              ].join(" ")}
+            />
+          </button>
+        }
+      >
+        {!conversionEnabled && currencyOverride && (
+          <div className="rounded-2xl border border-sky-200/70 bg-sky-50/45 p-3 text-[11px] text-amber-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-amber-300 md:col-span-2">
+            Advertencia: hay diferencia de moneda entre servicio y cobro. Podés
+            seguir igual sin bloquear el guardado.
+          </div>
+        )}
+
+        {conversionEnabled && (
+          <>
+            <div className="rounded-2xl border border-sky-200/70 bg-sky-50/45 p-4 text-xs text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-300 md:col-span-2">
+              <p>
+                Servicio en {lockedCurrency || "moneda base"}.{" "}
+                {hasMixedPaymentCurrencies
+                  ? "Cobro en múltiples monedas."
+                  : `Cobro en ${effectiveCurrency}.`}{" "}
+                El PDF mostrará el valor base.
+              </p>
+              <div className="mt-2 grid gap-1 text-[11px]">
+                <div>
+                  <span className="font-medium">Recibo (PDF):</span>{" "}
+                  {fmtMaybe(baseAmount, baseNum, baseCurrency || lockedCurrency)}
+                </div>
+                <div>
+                  <span className="font-medium">
+                    Administración (entra al banco/caja):
+                  </span>{" "}
+                  {amountReceived || "—"}
+                </div>
+                <div>
+                  <span className="font-medium">Contravalor:</span>{" "}
+                  {counterAmount.trim()
+                    ? fmtMaybe(
+                        counterAmount,
+                        counterNum,
+                        counterCurrency || effectiveCurrency,
+                      )
+                    : hasMixedPaymentCurrencies
+                      ? "—"
+                      : amountReceived || "—"}
+                </div>
+              </div>
+              {hasMixedPaymentCurrencies && (
+                <p className="mt-2 text-[10px] opacity-70">
+                  Con cobro en múltiples monedas, cargá el contravalor
+                  manualmente.
+                </p>
+              )}
+            </div>
+
+            <Field
+              id="base"
+              label="Valor base (moneda del servicio)"
+              hint="Ej.: 1500 USD (si es pago parcial, ingresá el parcial)."
+            >
+              <div className="flex gap-2">
+                <input
+                  value={baseAmount}
+                  onChange={(e) =>
                     setBaseAmount(
                       formatMoneyInput(
-                        baseAmount,
-                        nextCurrency || lockedCurrency || effectiveCurrency,
+                        e.target.value,
+                        baseCurrency || lockedCurrency || effectiveCurrency,
+                        { preferDotDecimal: shouldPreferDotDecimal(e) },
                       ),
-                    );
+                    )
                   }
-                }}
-                className={`${inputBase} cursor-pointer appearance-none`}
-              >
-                <option value="">Moneda</option>
-                {currencies
-                  .filter((c) => c.enabled)
-                  .map((c) => (
-                    <option key={`bc-${c.code}`} value={c.code}>
-                      {c.code}
-                    </option>
-                  ))}
-              </select>
-            </div>
-            {errors.base && (
-              <p className="mt-1 text-xs text-red-600">{errors.base}</p>
-            )}
-          </Field>
+                  placeholder="1500"
+                  className={inputBase}
+                />
+                <select
+                  value={baseCurrency}
+                  onChange={(e) => {
+                    const nextCurrency = e.target.value;
+                    setBaseCurrency(nextCurrency);
+                    if (baseAmount.trim()) {
+                      setBaseAmount(
+                        formatMoneyInput(
+                          baseAmount,
+                          nextCurrency || lockedCurrency || effectiveCurrency,
+                        ),
+                      );
+                    }
+                  }}
+                  className={`${inputBase} cursor-pointer appearance-none`}
+                >
+                  <option value="">Moneda</option>
+                  {currencies
+                    .filter((c) => c.enabled)
+                    .map((c) => (
+                      <option key={`bc-${c.code}`} value={c.code}>
+                        {c.code}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              {errors.base && (
+                <p className="mt-1 text-xs text-red-600">{errors.base}</p>
+              )}
+            </Field>
 
-          <Field
-            id="counter"
-            label="Contravalor (moneda del cobro)"
-            hint="Ej.: 2.000.000 ARS"
-          >
-            <div className="flex gap-2">
-              <input
-                value={counterAmount}
-                onChange={(e) =>
-                  setCounterAmount(
-                    formatMoneyInput(
-                      e.target.value,
-                      counterCurrency || effectiveCurrency,
-                      { preferDotDecimal: shouldPreferDotDecimal(e) },
-                    ),
-                  )
-                }
-                placeholder="2000000"
-                className={inputBase}
-              />
-              <select
-                value={counterCurrency}
-                onChange={(e) => {
-                  const nextCurrency = e.target.value;
-                  setCounterCurrency(nextCurrency);
-                  if (counterAmount.trim()) {
+            <Field
+              id="counter"
+              label="Contravalor (moneda del cobro)"
+              hint="Ej.: 2.000.000 ARS"
+            >
+              <div className="flex gap-2">
+                <input
+                  value={counterAmount}
+                  onChange={(e) =>
                     setCounterAmount(
                       formatMoneyInput(
-                        counterAmount,
-                        nextCurrency || effectiveCurrency,
+                        e.target.value,
+                        counterCurrency || effectiveCurrency,
+                        { preferDotDecimal: shouldPreferDotDecimal(e) },
                       ),
-                    );
+                    )
                   }
-                }}
-                className={`${inputBase} cursor-pointer appearance-none`}
-              >
-                <option value="">Moneda</option>
-                {currencies
-                  .filter((c) => c.enabled)
-                  .map((c) => (
-                    <option key={`cc-${c.code}`} value={c.code}>
-                      {c.code}
-                    </option>
-                  ))}
-              </select>
-            </div>
-            {errors.counter && (
-              <p className="mt-1 text-xs text-red-600">{errors.counter}</p>
-            )}
-          </Field>
-        </Section>
-      )}
-
-      <Section
-        title="Importe en palabras"
-        desc='Debe coincidir con el valor aplicado (ej.: "UN MILLÓN CIEN MIL").'
-      >
-        <Field id="amount_words" label="Equivalente en palabras" required>
-          <input
-            id="amount_words"
-            value={amountWords}
-            onChange={(e) => setAmountWords(e.target.value)}
-            placeholder='Ej.: "UN MILLÓN CIEN MIL"'
-            className={inputBase}
-          />
-          {errors.amountWords && (
-            <p className="mt-1 text-xs text-red-600">{errors.amountWords}</p>
-          )}
-        </Field>
+                  placeholder="2000000"
+                  className={inputBase}
+                />
+                <select
+                  value={counterCurrency}
+                  onChange={(e) => {
+                    const nextCurrency = e.target.value;
+                    setCounterCurrency(nextCurrency);
+                    if (counterAmount.trim()) {
+                      setCounterAmount(
+                        formatMoneyInput(
+                          counterAmount,
+                          nextCurrency || effectiveCurrency,
+                        ),
+                      );
+                    }
+                  }}
+                  className={`${inputBase} cursor-pointer appearance-none`}
+                >
+                  <option value="">Moneda</option>
+                  {currencies
+                    .filter((c) => c.enabled)
+                    .map((c) => (
+                      <option key={`cc-${c.code}`} value={c.code}>
+                        {c.code}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              {errors.counter && (
+                <p className="mt-1 text-xs text-red-600">{errors.counter}</p>
+              )}
+            </Field>
+          </>
+        )}
       </Section>
 
       <Section
@@ -941,24 +917,39 @@ export default function GroupCreateReceiptFields(props: {
         desc="Texto visible en el recibo. Si no escribís nada, se autogenera."
       >
         <div className="md:col-span-2">
-          <Field
-            id="payment_desc"
-            label="Método de pago (detalle para el PDF)"
-            required
-          >
+          <Field id="amount_words" label="Equivalente en palabras" required>
             <input
-              id="payment_desc"
-              value={paymentDescription}
-              onChange={(e) => setPaymentDescription(e.target.value)}
-              placeholder="Ej.: Efectivo: 100 USD + Transferencia: 200 USD"
+              id="amount_words"
+              value={amountWords}
+              onChange={(e) => setAmountWords(e.target.value)}
+              placeholder='Ej.: "UN MILLÓN CIEN MIL"'
               className={inputBase}
             />
-            {errors.paymentDescription && (
-              <p className="mt-1 text-xs text-red-600">
-                {errors.paymentDescription}
-              </p>
+            {errors.amountWords && (
+              <p className="mt-1 text-xs text-red-600">{errors.amountWords}</p>
             )}
           </Field>
+
+          <div className="mt-3">
+            <Field
+              id="payment_desc"
+              label="Método de pago (detalle para el PDF)"
+              required
+            >
+              <input
+                id="payment_desc"
+                value={paymentDescription}
+                onChange={(e) => setPaymentDescription(e.target.value)}
+                placeholder="Ej.: Efectivo: 100 USD + Transferencia: 200 USD"
+                className={inputBase}
+              />
+              {errors.paymentDescription && (
+                <p className="mt-1 text-xs text-red-600">
+                  {errors.paymentDescription}
+                </p>
+              )}
+            </Field>
+          </div>
 
           <div className="mt-3">
             <Field id="concept" label="Concepto">
@@ -973,6 +964,147 @@ export default function GroupCreateReceiptFields(props: {
           </div>
         </div>
       </Section>
+
+      <Section
+        title="Ítems del recibo"
+        desc="Opcional: cargá manualmente las filas del detalle de servicios del PDF."
+        headerRight={
+          <button
+            type="button"
+            role="switch"
+            aria-checked={manualPdfItemsEnabled}
+            onClick={() => {
+              const next = !manualPdfItemsEnabled;
+              setManualPdfItemsEnabled(next);
+              if (next && manualPdfItems.length === 0) {
+                addManualPdfItem();
+              }
+            }}
+            className={[
+              "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+              manualPdfItemsEnabled
+                ? "bg-sky-500/70"
+                : "bg-sky-950/20 dark:bg-white/20",
+            ].join(" ")}
+          >
+            <span
+              className={[
+                "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform",
+                manualPdfItemsEnabled ? "translate-x-5" : "translate-x-1",
+              ].join(" ")}
+            />
+          </button>
+        }
+      >
+        <div className="rounded-2xl border border-sky-200/70 bg-sky-50/45 p-3 dark:border-sky-900/40 dark:bg-slate-900/55 md:col-span-2">
+          {manualPdfItemsEnabled && (
+            <div className="mt-3 space-y-2">
+              {manualPdfItems.length === 0 && (
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  Todavía no hay ítems manuales.
+                </p>
+              )}
+
+              {manualPdfItems.map((item, idx) => (
+                <div
+                  key={item.key}
+                  className="rounded-2xl border border-sky-200/70 bg-white/85 p-3 dark:border-sky-900/40 dark:bg-slate-900/60"
+                >
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+                    Ítem Nº {idx + 1}
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-12 md:items-end">
+                    <div className="md:col-span-7">
+                      <label className="ml-1 block text-xs font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
+                        Descripción
+                      </label>
+                      <input
+                        value={item.description}
+                        onChange={(e) =>
+                          setManualPdfItemDescription(item.key, e.target.value)
+                        }
+                        placeholder="Ej.: Hotel + excursión ciudad"
+                        className={inputBase}
+                      />
+                    </div>
+
+                    <div className="md:col-span-4">
+                      <label className="ml-1 block text-xs font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
+                        Fecha (opcional)
+                      </label>
+                      <input
+                        value={item.date_label}
+                        onChange={(e) =>
+                          setManualPdfItemDateLabel(item.key, e.target.value)
+                        }
+                        placeholder="Ej.: 10/04/2026 - 14/04/2026"
+                        className={inputBase}
+                      />
+                    </div>
+
+                    <div className="md:col-span-1">
+                      <button
+                        type="button"
+                        onClick={() => removeManualPdfItem(item.key)}
+                        className="inline-flex size-10 items-center justify-center rounded-full border border-slate-300/80 bg-white/85 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:bg-slate-800/70"
+                        title="Quitar ítem"
+                        aria-label={`Quitar ítem ${idx + 1}`}
+                      >
+                        <IconTrash className="size-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={addManualPdfItem}
+                  className="rounded-full border border-sky-300/80 bg-sky-100/80 px-3 py-1.5 text-xs text-sky-900 shadow-sm shadow-sky-100/60 transition hover:bg-sky-100 dark:border-sky-700 dark:bg-sky-900/25 dark:text-sky-100 dark:hover:bg-sky-900/35"
+                >
+                  + Agregar ítem
+                </button>
+              </div>
+
+              <div className="pt-1">
+                <label className="ml-1 block text-xs font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
+                  Texto libre debajo de la tabla (opcional)
+                </label>
+                <textarea
+                  value={manualPdfFreeText}
+                  onChange={(e) => setManualPdfFreeText(e.target.value)}
+                  placeholder="Ej.: Los servicios sujetos a reconfirmación se informarán por correo."
+                  className={`${inputBase} mt-1 min-h-[88px] resize-y`}
+                />
+              </div>
+            </div>
+          )}
+
+          {errors.pdf_items && (
+            <p className="mt-2 text-xs text-red-600">{errors.pdf_items}</p>
+          )}
+        </div>
+      </Section>
     </>
+  );
+}
+
+function IconTrash(props: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden
+      {...props}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+      />
+    </svg>
   );
 }

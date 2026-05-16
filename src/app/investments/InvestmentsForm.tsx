@@ -8,6 +8,11 @@ import Spinner from "@/components/Spinner";
 import OperatorPicker from "@/components/operators/OperatorPicker";
 import { formatMoneyInput, shouldPreferDotDecimal } from "@/utils/moneyInput";
 import { parseAmountInput } from "@/utils/receipts/receiptForm";
+import {
+  DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+  RECEIPT_ADJUSTMENT_LABELS,
+  normalizeReceiptAdjustmentLabel,
+} from "@/utils/receipts/paymentAdjustments";
 import type {
   InvestmentFormState,
   Operator,
@@ -191,6 +196,8 @@ export default function InvestmentsForm({
 }: InvestmentsFormProps) {
   const itemLabel = operatorOnly ? "pago" : "gasto";
   const allowRecurring = !operatorOnly;
+  const hideOperatorCategorySelect =
+    operatorOnly && categoryOptions.length === 1;
   const [showRecurringContent, setShowRecurringContent] = useState(false);
   const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
   const lineUid = () => `${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -272,6 +279,7 @@ export default function InvestmentsForm({
             .toUpperCase(),
           fee_mode: "NONE",
           fee_value: "",
+          fee_label: DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
         },
       ],
     }));
@@ -696,7 +704,7 @@ export default function InvestmentsForm({
 
               <section className="rounded-2xl border border-white/10 bg-white/10 p-4">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                {operatorOnly && (
+                {operatorOnly && !hideOperatorCategorySelect && (
                   <Field id="category" label="Categoría" required>
                     <select
                       id="category"
@@ -732,7 +740,11 @@ export default function InvestmentsForm({
                     id="operator_id"
                     label="Operador"
                     required
-                    className={operatorOnly ? undefined : "md:col-span-2"}
+                    className={
+                      !operatorOnly || hideOperatorCategorySelect
+                        ? "md:col-span-2"
+                        : undefined
+                    }
                   >
                     <OperatorPicker
                       inputId="operator_id"
@@ -826,7 +838,7 @@ export default function InvestmentsForm({
                 title={operatorOnly ? "Pagos" : "Pago"}
                 desc={
                   operatorOnly
-                    ? "Por línea definí importe, método, cuenta, moneda y costo financiero."
+                    ? "Por línea definí importe, método, cuenta, moneda y ajuste del cobro."
                     : "Monto, moneda y método de pago."
                 }
               >
@@ -844,7 +856,7 @@ export default function InvestmentsForm({
                             )}
                         </span>
                         <span>
-                          <b>Costo financiero:</b>{" "}
+                          <b>Ajuste del cobro:</b>{" "}
                           {formatMoney(
                             paymentSummary.feeTotal,
                             paymentSummary.currencies[0] ||
@@ -1012,7 +1024,7 @@ export default function InvestmentsForm({
                               </Field>
                             </div>
 
-                            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
                               <Field
                                 id={`payment_currency_${line.key}`}
                                 label="Moneda del cobro"
@@ -1066,7 +1078,7 @@ export default function InvestmentsForm({
                                 </select>
                               </Field>
 
-                              <Field id={`payment_fee_mode_${line.key}`} label="Costo financiero">
+                              <Field id={`payment_fee_mode_${line.key}`} label="Ajuste del cobro">
                                 <select
                                   id={`payment_fee_mode_${line.key}`}
                                   className={`${inputClass} cursor-pointer appearance-none`}
@@ -1095,22 +1107,49 @@ export default function InvestmentsForm({
                                     updatePaymentLine(line.key, {
                                       fee_mode: nextMode,
                                       fee_value: nextFeeValue,
+                                      fee_label:
+                                        line.fee_label ||
+                                        DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
                                     });
                                   }}
                                 >
-                                  <option value="NONE">Sin costo</option>
+                                  <option value="NONE">Sin ajuste</option>
                                   <option value="PERCENT">Porcentaje (%)</option>
                                   <option value="FIXED">Monto fijo</option>
                                 </select>
                               </Field>
 
                               <Field
+                                id={`payment_fee_label_${line.key}`}
+                                label="Concepto"
+                              >
+                                <select
+                                  id={`payment_fee_label_${line.key}`}
+                                  className={`${inputClass} cursor-pointer appearance-none`}
+                                  value={
+                                    line.fee_label ||
+                                    DEFAULT_RECEIPT_ADJUSTMENT_LABEL
+                                  }
+                                  onChange={(e) =>
+                                    updatePaymentLine(line.key, {
+                                      fee_label: normalizeReceiptAdjustmentLabel(
+                                        e.target.value,
+                                      ),
+                                    })
+                                  }
+                                  disabled={line.fee_mode === "NONE"}
+                                >
+                                  {RECEIPT_ADJUSTMENT_LABELS.map((label) => (
+                                    <option key={label} value={label}>
+                                      {label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </Field>
+
+                              <Field
                                 id={`payment_fee_value_${line.key}`}
-                                label={
-                                  line.fee_mode === "PERCENT"
-                                    ? "Porcentaje (%)"
-                                    : "Monto"
-                                }
+                                label="Valor del ajuste"
                               >
                                 <input
                                   id={`payment_fee_value_${line.key}`}
@@ -1156,7 +1195,7 @@ export default function InvestmentsForm({
                             <div className="mt-2 text-xs text-sky-950/70 dark:text-white/70">
                               Impacta en deuda: {formatMoney(impact, lineCurrency)}
                               {line.fee_mode !== "NONE"
-                                ? ` (CF: ${formatMoney(feeAmount, lineCurrency)})`
+                                ? ` (Ajuste: ${formatMoney(feeAmount, lineCurrency)})`
                                 : ""}
                             </div>
                           </div>

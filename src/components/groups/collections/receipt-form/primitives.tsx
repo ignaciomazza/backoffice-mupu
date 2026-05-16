@@ -14,18 +14,22 @@ export const inputBase =
 export const Section: React.FC<{
   title: string;
   desc?: string;
+  headerRight?: React.ReactNode;
   children: React.ReactNode;
-}> = ({ title, desc, children }) => (
+}> = ({ title, desc, headerRight, children }) => (
   <section className="rounded-2xl border border-sky-300/70 bg-white p-4 dark:border-sky-600/30 dark:bg-sky-950/10">
-    <div className="mb-4">
-      <h3 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-slate-100 md:text-base">
-        {title}
-      </h3>
-      {desc && (
-        <p className="mt-1 text-[11px] font-light leading-relaxed text-slate-600 dark:text-slate-400 md:text-xs">
-          {desc}
-        </p>
-      )}
+    <div className="mb-4 flex items-start justify-between gap-3">
+      <div>
+        <h3 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-slate-100 md:text-base">
+          {title}
+        </h3>
+        {desc && (
+          <p className="mt-1 text-[11px] font-light leading-relaxed text-slate-600 dark:text-slate-400 md:text-xs">
+            {desc}
+          </p>
+        )}
+      </div>
+      {headerRight ? <div className="shrink-0">{headerRight}</div> : null}
     </div>
     <div className="grid grid-cols-1 gap-6 md:grid-cols-2 md:gap-7">{children}</div>
   </section>

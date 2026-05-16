@@ -14,6 +14,7 @@ import {
 } from "@/lib/groups/inventoryServiceRefs";
 import { readGroupReceiptPaymentsFromMetadata } from "@/lib/groups/groupReceiptMetadata";
 import { computePassengerPendingValue } from "@/lib/groups/passengerPending";
+import { readPassengerSaleConfig } from "@/lib/groups/passengerSaleTotals";
 
 function pickParam(value: string | string[] | undefined): string | null {
   if (!value) return null;
@@ -389,6 +390,12 @@ export default async function handler(
         const inventoryServicesByCurrency = inventoryTotalsForPassenger(
           item.id_travel_group_passenger,
         );
+        const saleConfig = readPassengerSaleConfig(item.metadata);
+        const pendingServicesByCurrency =
+          saleConfig.useSaleTotalOverride &&
+          hasDetectableTotals(saleConfig.saleTotals)
+            ? saleConfig.saleTotals
+            : inventoryServicesByCurrency;
 
         return {
           ...item,
@@ -401,8 +408,10 @@ export default async function handler(
           departure_public_id: item.travelGroupDeparture
             ? getDeparturePublicId(item.travelGroupDeparture)
             : null,
+          sale_totals: saleConfig.saleTotals,
+          use_sale_total_override: saleConfig.useSaleTotalOverride,
           pending_payment: computePassengerPendingValue({
-            servicesByCurrency: inventoryServicesByCurrency,
+            servicesByCurrency: pendingServicesByCurrency,
             receiptsByCurrency:
               receiptsByPassengerId.get(item.id_travel_group_passenger) ?? null,
             installmentsFallback: pendingByPassengerId.get(

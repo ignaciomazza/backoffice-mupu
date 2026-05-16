@@ -10,6 +10,11 @@ import OperatorPicker from "@/components/operators/OperatorPicker";
 import { authFetch } from "@/utils/authFetch";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
 import { parseAmountInput } from "@/utils/receipts/receiptForm";
+import {
+  DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+  RECEIPT_ADJUSTMENT_LABELS,
+  normalizeReceiptAdjustmentLabel,
+} from "@/utils/receipts/paymentAdjustments";
 import { shouldConfirmFullExcessWithServices } from "@/utils/investments/allocations";
 import ServiceAllocationsEditor, {
   type AllocationSummary,
@@ -241,18 +246,22 @@ type CreditAccStatus =
 const Section: React.FC<{
   title: string;
   desc?: string;
+  headerRight?: React.ReactNode;
   children: React.ReactNode;
-}> = ({ title, desc, children }) => (
+}> = ({ title, desc, headerRight, children }) => (
   <section className="rounded-2xl border border-white/10 bg-white/10 p-4">
-    <div className="mb-3">
-      <h3 className="text-base font-semibold tracking-tight text-sky-950 dark:text-white">
-        {title}
-      </h3>
-      {desc && (
-        <p className="mt-1 text-xs font-light text-sky-950/70 dark:text-white/70">
-          {desc}
-        </p>
-      )}
+    <div className="mb-3 flex items-start justify-between gap-3">
+      <div>
+        <h3 className="text-base font-semibold tracking-tight text-sky-950 dark:text-white">
+          {title}
+        </h3>
+        {desc && (
+          <p className="mt-1 text-xs font-light text-sky-950/70 dark:text-white/70">
+            {desc}
+          </p>
+        )}
+      </div>
+      {headerRight && <div className="shrink-0">{headerRight}</div>}
     </div>
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">{children}</div>
   </section>
@@ -384,6 +393,7 @@ type PaymentLineDraft = {
   payment_currency: string;
   fee_mode: "NONE" | "FIXED" | "PERCENT";
   fee_value: string;
+  fee_label: string;
 };
 
 const calcPaymentLineFee = (line: PaymentLineDraft) => {
@@ -788,6 +798,8 @@ export default function OperatorPaymentForm({
   const [excessMissingAccountAction, setExcessMissingAccountAction] =
     useState<ExcessMissingAccountAction>("carry");
   const [allocationResetKey, setAllocationResetKey] = useState(0);
+  const [serviceAllocationsEnabled, setServiceAllocationsEnabled] =
+    useState(false);
 
   useEffect(() => {
     if (selectedServices.length === 0) {
@@ -802,6 +814,7 @@ export default function OperatorPaymentForm({
       setExcessAction("carry");
       setExcessMissingAccountAction("carry");
       setAllocationResetKey((k) => k + 1);
+      setServiceAllocationsEnabled(false);
     }
   }, [selectedServices.length]);
 
@@ -935,6 +948,7 @@ export default function OperatorPaymentForm({
       payment_currency: "ARS",
       fee_mode: "NONE",
       fee_value: "",
+      fee_label: DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
     },
   ]);
   const [description, setDescription] = useState<string>("");
@@ -944,6 +958,7 @@ export default function OperatorPaymentForm({
   const [baseCurrency, setBaseCurrency] = useState<string>("");
   const [counterAmount, setCounterAmount] = useState<string>("");
   const [counterCurrency, setCounterCurrency] = useState<string>("");
+  const [conversionEnabled, setConversionEnabled] = useState(false);
 
   const [loading, setLoading] = useState(false);
 
@@ -1001,6 +1016,7 @@ export default function OperatorPaymentForm({
             ),
             fee_mode: "NONE",
             fee_value: "",
+            fee_label: DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
           },
         ];
       }
@@ -1088,6 +1104,7 @@ export default function OperatorPaymentForm({
         payment_currency: effectivePaymentCurrency,
         fee_mode: "NONE",
         fee_value: "",
+        fee_label: DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
       },
     ]);
   }, [effectivePaymentCurrency]);
@@ -1165,6 +1182,8 @@ export default function OperatorPaymentForm({
                       line.payment_currency || effectivePaymentCurrency,
                     )
                   : line.fee_value,
+            fee_label:
+              line.fee_label || DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
           };
         }),
       );
@@ -1176,6 +1195,16 @@ export default function OperatorPaymentForm({
     setPaymentLines((prev) =>
       prev.map((line) =>
         line.key === key ? { ...line, fee_value: value } : line,
+      ),
+    );
+  }, []);
+
+  const setPaymentLineFeeLabel = useCallback((key: string, value: string) => {
+    setPaymentLines((prev) =>
+      prev.map((line) =>
+        line.key === key
+          ? { ...line, fee_label: normalizeReceiptAdjustmentLabel(value) }
+          : line,
       ),
     );
   }, []);
@@ -1212,6 +1241,7 @@ export default function OperatorPaymentForm({
               payment_currency: suggestedCurrency,
               fee_mode: "NONE",
               fee_value: "",
+              fee_label: DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
             },
           ];
         }
@@ -1290,6 +1320,7 @@ export default function OperatorPaymentForm({
 
   useEffect(() => {
     if (!showConversionSection) {
+      setConversionEnabled(false);
       setBaseAmount("");
       setBaseCurrency("");
       setCounterAmount("");
@@ -1338,48 +1369,6 @@ export default function OperatorPaymentForm({
     setSelectedIds((prev) => [...prev, svc.id_service]);
   };
 
-  const useSuggested = () => {
-    if (selectedServices.length === 0) return;
-    setPaymentLines((prev) => {
-      const targetCurrency = normalizeCurrencyCodeLoose(
-        lockedSvcCurrency || currencyOptions[0] || effectivePaymentCurrency || "ARS",
-      );
-      if (!prev.length) {
-        return [
-          {
-            key: uid(),
-            amount: formatMoneyInput(String(suggestedAmount || 0), targetCurrency),
-            payment_method: "",
-            account: "",
-            payment_currency: targetCurrency,
-            fee_mode: "NONE",
-            fee_value: "",
-          },
-        ];
-      }
-      return prev.map((line, idx) =>
-        idx === 0
-          ? {
-              ...line,
-              amount: formatMoneyInput(String(suggestedAmount || 0), targetCurrency),
-              payment_currency: targetCurrency,
-            }
-          : line,
-      );
-    });
-    if (showConversionSection) {
-      const nextBaseCurrency = selectedCurrencies[0] || "";
-      setBaseCurrency((v) => v || nextBaseCurrency);
-      setBaseAmount(
-        formatMoneyInput(
-          String(suggestedAmount || 0),
-          nextBaseCurrency || effectivePaymentCurrency,
-        ),
-      );
-      setCounterCurrency(effectivePaymentCurrency || "");
-    }
-  };
-
   const previewAmount = useMemo(() => {
     const n = paymentsTotalNum;
     if (n <= 0) return "";
@@ -1396,7 +1385,8 @@ export default function OperatorPaymentForm({
 
   const previewBase = useMemo(() => {
     const n = parseAmountInput(baseAmount) ?? 0;
-    if (!showConversionSection || n <= 0 || !baseCurrency) return "";
+    if (!showConversionSection || !conversionEnabled || n <= 0 || !baseCurrency)
+      return "";
     try {
       return new Intl.NumberFormat("es-AR", {
         style: "currency",
@@ -1405,11 +1395,12 @@ export default function OperatorPaymentForm({
     } catch {
       return `${n.toFixed(2)} ${baseCurrency}`;
     }
-  }, [showConversionSection, baseAmount, baseCurrency]);
+  }, [showConversionSection, conversionEnabled, baseAmount, baseCurrency]);
 
   const previewCounter = useMemo(() => {
     const n = parseAmountInput(counterAmount) ?? 0;
-    if (!showConversionSection || n <= 0 || !counterCurrency) return "";
+    if (!showConversionSection || !conversionEnabled || n <= 0 || !counterCurrency)
+      return "";
     try {
       return new Intl.NumberFormat("es-AR", {
         style: "currency",
@@ -1418,7 +1409,7 @@ export default function OperatorPaymentForm({
     } catch {
       return `${n.toFixed(2)} ${counterCurrency}`;
     }
-  }, [showConversionSection, counterAmount, counterCurrency]);
+  }, [showConversionSection, conversionEnabled, counterAmount, counterCurrency]);
 
   const editorPaymentCurrency =
     action === "attach" ? selectedPayment?.currency || "" : currency;
@@ -1519,7 +1510,8 @@ export default function OperatorPaymentForm({
 
   /* ========= Validaciones ========= */
   const validateConversion = (): { ok: boolean; msg?: string } => {
-    if (!showConversionSection || !hasConversionData) return { ok: true };
+    if (!showConversionSection || !conversionEnabled || !hasConversionData)
+      return { ok: true };
     const bAmt = parseAmountInput(baseAmount) ?? 0;
     const cAmt = parseAmountInput(counterAmount) ?? 0;
     if (bAmt <= 0)
@@ -1860,6 +1852,7 @@ export default function OperatorPaymentForm({
       payment_method: string;
       account?: string;
       payment_currency: string;
+      fee_label?: string;
       fee_mode?: "FIXED" | "PERCENT";
       fee_value?: number;
       fee_amount?: number;
@@ -1892,11 +1885,11 @@ export default function OperatorPaymentForm({
       if (line.fee_mode !== "NONE") {
         const feeValueNum = parseAmountInput(line.fee_value) ?? 0;
         if (feeValueNum < 0) {
-          toast.error(`Línea ${lineNo}: costo financiero inválido.`);
+          toast.error(`Línea ${lineNo}: ajuste del cobro inválido.`);
           return;
         }
         if (line.fee_mode === "PERCENT" && feeValueNum > 1000) {
-          toast.error(`Línea ${lineNo}: porcentaje de costo financiero inválido.`);
+          toast.error(`Línea ${lineNo}: porcentaje de ajuste inválido.`);
           return;
         }
       }
@@ -1906,6 +1899,9 @@ export default function OperatorPaymentForm({
         payment_method: line.payment_method.trim(),
         account: lineAccount || undefined,
         payment_currency: lineCurrency,
+        fee_label: normalizeReceiptAdjustmentLabel(
+          line.fee_label || DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+        ),
         fee_mode:
           line.fee_mode === "FIXED" || line.fee_mode === "PERCENT"
             ? line.fee_mode
@@ -2022,7 +2018,7 @@ export default function OperatorPaymentForm({
         payments: normalizedPaymentsPayload,
       };
 
-      if (showConversionSection && hasConversionData) {
+      if (showConversionSection && conversionEnabled && hasConversionData) {
         const bAmt = parseAmountInput(baseAmount) ?? 0;
         const cAmt = parseAmountInput(counterAmount) ?? 0;
         payload.base_amount = bAmt > 0 ? bAmt : undefined;
@@ -2071,12 +2067,14 @@ export default function OperatorPaymentForm({
           ),
           fee_mode: "NONE",
           fee_value: "",
+          fee_label: DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
         },
       ]);
       setBaseAmount("");
       setBaseCurrency("");
       setCounterAmount("");
       setCounterCurrency("");
+      setConversionEnabled(false);
       setAllocationSummary({
         allocations: [],
         assignedTotal: 0,
@@ -2357,27 +2355,6 @@ export default function OperatorPaymentForm({
                   </div>
                 </div>
 
-                {selectedServices.length > 0 &&
-                  (action === "create" || selectedPayment) && (
-                  <div className="md:col-span-2">
-                    <ServiceAllocationsEditor
-                      services={selectedServices}
-                      paymentCurrency={editorPaymentCurrency}
-                      paymentAmount={editorPaymentAmount}
-                      initialAllocations={
-                        action === "attach" ? attachInitialAllocations : undefined
-                      }
-                      resetKey={allocationResetKey}
-                      excessAction={excessAction}
-                      onExcessActionChange={setExcessAction}
-                      excessMissingAccountAction={excessMissingAccountAction}
-                      onExcessMissingAccountActionChange={
-                        setExcessMissingAccountAction
-                      }
-                      onSummaryChange={setAllocationSummary}
-                    />
-                  </div>
-                )}
               </Section>
 
               {action === "attach" && (
@@ -2480,6 +2457,62 @@ export default function OperatorPaymentForm({
                 </Section>
               )}
 
+              {selectedServices.length > 0 &&
+                (action === "create" || selectedPayment) && (
+                <Section
+                  title="Ajustar monto por servicio"
+                  desc="Asigná cuánto del pago corresponde a cada servicio seleccionado."
+                  headerRight={
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={serviceAllocationsEnabled}
+                      onClick={() =>
+                        setServiceAllocationsEnabled(!serviceAllocationsEnabled)
+                      }
+                      className={[
+                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                        serviceAllocationsEnabled
+                          ? "bg-sky-500/70"
+                          : "bg-sky-950/20 dark:bg-white/20",
+                      ].join(" ")}
+                    >
+                      <span
+                        className={[
+                          "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform",
+                          serviceAllocationsEnabled
+                            ? "translate-x-5"
+                            : "translate-x-1",
+                        ].join(" ")}
+                      />
+                    </button>
+                  }
+                >
+                  <div
+                    className={`md:col-span-2 ${
+                      serviceAllocationsEnabled ? "" : "hidden"
+                    }`}
+                  >
+                    <ServiceAllocationsEditor
+                      services={selectedServices}
+                      paymentCurrency={editorPaymentCurrency}
+                      paymentAmount={editorPaymentAmount}
+                      initialAllocations={
+                        action === "attach" ? attachInitialAllocations : undefined
+                      }
+                      resetKey={allocationResetKey}
+                      excessAction={excessAction}
+                      onExcessActionChange={setExcessAction}
+                      excessMissingAccountAction={excessMissingAccountAction}
+                      onExcessMissingAccountActionChange={
+                        setExcessMissingAccountAction
+                      }
+                      onSummaryChange={setAllocationSummary}
+                    />
+                  </div>
+                </Section>
+              )}
+
               {/* PAGO: categoría / operador / crédito */}
               {action === "create" && (
                 <Section
@@ -2545,7 +2578,7 @@ export default function OperatorPaymentForm({
               {action === "create" && (
                 <Section
                   title="Pagos"
-                  desc="Por línea definí importe, método, cuenta, moneda y costo financiero."
+                  desc="Por línea definí importe, método, cuenta, moneda y ajuste del cobro."
                 >
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs md:col-span-2">
                     <div className="flex flex-wrap items-center gap-3">
@@ -2554,7 +2587,7 @@ export default function OperatorPaymentForm({
                         {previewAmount || formatMoney(0, effectivePaymentCurrency)}
                       </span>
                       <span>
-                        <b>Costo financiero:</b>{" "}
+                        <b>Ajuste del cobro:</b>{" "}
                         {formatMoney(paymentsFeeTotalNum, effectivePaymentCurrency)}
                       </span>
                     </div>
@@ -2574,6 +2607,10 @@ export default function OperatorPaymentForm({
                         line.payment_currency || effectivePaymentCurrency,
                       );
                       const lineFee = paymentLineFeeByKey[line.key] || 0;
+                      const lineAmountNum = parseAmountInput(line.amount) ?? 0;
+                      const lineImpact = round2(
+                        Math.max(0, lineAmountNum) + Math.max(0, lineFee),
+                      );
                       return (
                         <div
                           key={line.key}
@@ -2706,7 +2743,7 @@ export default function OperatorPaymentForm({
                           </div>
 
                           <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
-                            <div className="md:col-span-4">
+                            <div className="md:col-span-3">
                               <label className="ml-1 block text-xs font-semibold uppercase tracking-wide text-sky-950/75 dark:text-white/75">
                                 Moneda del cobro
                               </label>
@@ -2739,9 +2776,9 @@ export default function OperatorPaymentForm({
                               )}
                             </div>
 
-                            <div className="md:col-span-4">
+                            <div className="md:col-span-3">
                               <label className="ml-1 block text-xs font-semibold uppercase tracking-wide text-sky-950/75 dark:text-white/75">
-                                Costo financiero
+                                Ajuste del cobro
                               </label>
                               <select
                                 value={line.fee_mode}
@@ -2753,15 +2790,38 @@ export default function OperatorPaymentForm({
                                 }
                                 className={`${inputBase} cursor-pointer appearance-none`}
                               >
-                                <option value="NONE">Sin costo</option>
+                                <option value="NONE">Sin ajuste</option>
                                 <option value="PERCENT">Porcentaje (%)</option>
                                 <option value="FIXED">Monto fijo</option>
                               </select>
                             </div>
 
-                            <div className="md:col-span-4">
+                            <div className="md:col-span-3">
                               <label className="ml-1 block text-xs font-semibold uppercase tracking-wide text-sky-950/75 dark:text-white/75">
-                                Valor del costo
+                                Concepto
+                              </label>
+                              <select
+                                value={
+                                  line.fee_label ||
+                                  DEFAULT_RECEIPT_ADJUSTMENT_LABEL
+                                }
+                                onChange={(e) =>
+                                  setPaymentLineFeeLabel(line.key, e.target.value)
+                                }
+                                className={`${inputBase} cursor-pointer appearance-none`}
+                                disabled={line.fee_mode === "NONE"}
+                              >
+                                {RECEIPT_ADJUSTMENT_LABELS.map((label) => (
+                                  <option key={label} value={label}>
+                                    {label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div className="md:col-span-3">
+                              <label className="ml-1 block text-xs font-semibold uppercase tracking-wide text-sky-950/75 dark:text-white/75">
+                                Valor del ajuste
                               </label>
                               <input
                                 inputMode="decimal"
@@ -2797,11 +2857,18 @@ export default function OperatorPaymentForm({
 
                             <div className="md:col-span-12">
                               <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
-                                Impacta:{" "}
+                                Impacta en deuda:{" "}
                                 {formatMoney(
-                                  lineFee,
+                                  lineImpact,
                                   line.payment_currency || effectivePaymentCurrency,
                                 )}
+                                {line.fee_mode !== "NONE"
+                                  ? ` (Ajuste: ${formatMoney(
+                                      lineFee,
+                                      line.payment_currency ||
+                                        effectivePaymentCurrency,
+                                    )})`
+                                  : ""}
                               </p>
                             </div>
                           </div>
@@ -2818,23 +2885,6 @@ export default function OperatorPaymentForm({
                         + Agregar línea
                       </button>
 
-                      {selectedServices.length > 0 && allSameCurrency && (
-                        <button
-                          type="button"
-                          onClick={useSuggested}
-                          className="text-xs underline underline-offset-2"
-                        >
-                          Usar suma de costos:{" "}
-                          {formatMoney(
-                            suggestedAmount,
-                            (
-                              lockedSvcCurrency ||
-                              effectivePaymentCurrency ||
-                              "ARS"
-                            ).toUpperCase(),
-                          )}
-                        </button>
-                      )}
                     </div>
                   </div>
                 </Section>
@@ -2908,113 +2958,138 @@ export default function OperatorPaymentForm({
                 <Section
                   title="Conversión (opcional)"
                   desc="Visible porque la moneda del cobro difiere de la moneda de los servicios."
+                  headerRight={
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={conversionEnabled}
+                      onClick={() => setConversionEnabled(!conversionEnabled)}
+                      className={[
+                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                        conversionEnabled
+                          ? "bg-sky-500/70"
+                          : "bg-sky-950/20 dark:bg-white/20",
+                      ].join(" ")}
+                    >
+                      <span
+                        className={[
+                          "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform",
+                          conversionEnabled ? "translate-x-5" : "translate-x-1",
+                        ].join(" ")}
+                      />
+                    </button>
+                  }
                 >
-                  <Field id="base" label="Valor base">
-                    <div className="flex gap-2">
-                      <input
-                        inputMode="decimal"
-                        className={inputBase}
-                        placeholder={formatMoney(
-                          0,
-                          baseCurrency || selectedCurrencies[0] || "ARS",
-                        )}
-                        value={baseAmount}
-                        onChange={(e) =>
-                          setBaseAmount(
-                            formatMoneyInput(
-                              e.target.value,
+                  {conversionEnabled && (
+                    <>
+                      <Field id="base" label="Valor base">
+                        <div className="flex gap-2">
+                          <input
+                            inputMode="decimal"
+                            className={inputBase}
+                            placeholder={formatMoney(
+                              0,
                               baseCurrency || selectedCurrencies[0] || "ARS",
-                              { preferDotDecimal: shouldPreferDotDecimal(e) },
-                            ),
-                          )
-                        }
-                      />
-                      <select
-                        className={`${inputBase} cursor-pointer appearance-none`}
-                        value={baseCurrency}
-                        onChange={(e) => {
-                          const nextCurrency = e.target.value;
-                          setBaseCurrency(nextCurrency);
-                          if (baseAmount) {
-                            setBaseAmount(
-                              formatMoneyInput(baseAmount, nextCurrency),
-                            );
-                          }
-                        }}
-                        disabled={currencyOptions.length === 0}
-                      >
-                        <option value="" disabled>
-                          {currencyOptions.length ? "Moneda" : "Sin monedas"}
-                        </option>
-                        {currencyOptions.map((code) => (
-                          <option key={`bc-${code}`} value={code}>
-                            {code}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {previewBase && (
-                      <div className="ml-1 mt-1 text-xs opacity-70">
-                        {previewBase}
-                      </div>
-                    )}
-                  </Field>
-
-                  <Field id="counter" label="Contravalor">
-                    <div className="flex gap-2">
-                      <input
-                        inputMode="decimal"
-                        className={inputBase}
-                        placeholder={formatMoney(
-                          0,
-                          counterCurrency || effectivePaymentCurrency || "ARS",
+                            )}
+                            value={baseAmount}
+                            onChange={(e) =>
+                              setBaseAmount(
+                                formatMoneyInput(
+                                  e.target.value,
+                                  baseCurrency || selectedCurrencies[0] || "ARS",
+                                  { preferDotDecimal: shouldPreferDotDecimal(e) },
+                                ),
+                              )
+                            }
+                          />
+                          <select
+                            className={`${inputBase} cursor-pointer appearance-none`}
+                            value={baseCurrency}
+                            onChange={(e) => {
+                              const nextCurrency = e.target.value;
+                              setBaseCurrency(nextCurrency);
+                              if (baseAmount) {
+                                setBaseAmount(
+                                  formatMoneyInput(baseAmount, nextCurrency),
+                                );
+                              }
+                            }}
+                            disabled={currencyOptions.length === 0}
+                          >
+                            <option value="" disabled>
+                              {currencyOptions.length ? "Moneda" : "Sin monedas"}
+                            </option>
+                            {currencyOptions.map((code) => (
+                              <option key={`bc-${code}`} value={code}>
+                                {code}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {previewBase && (
+                          <div className="ml-1 mt-1 text-xs opacity-70">
+                            {previewBase}
+                          </div>
                         )}
-                        value={counterAmount}
-                        onChange={(e) =>
-                          setCounterAmount(
-                            formatMoneyInput(
-                              e.target.value,
-                              counterCurrency || effectivePaymentCurrency,
-                              { preferDotDecimal: shouldPreferDotDecimal(e) },
-                            ),
-                          )
-                        }
-                      />
-                      <select
-                        className={`${inputBase} cursor-pointer appearance-none`}
-                        value={counterCurrency}
-                        onChange={(e) => {
-                          const nextCurrency = e.target.value;
-                          setCounterCurrency(nextCurrency);
-                          if (counterAmount) {
-                            setCounterAmount(
-                              formatMoneyInput(counterAmount, nextCurrency),
-                            );
-                          }
-                        }}
-                        disabled={currencyOptions.length === 0}
-                      >
-                        <option value="" disabled>
-                          {currencyOptions.length ? "Moneda" : "Sin monedas"}
-                        </option>
-                        {currencyOptions.map((code) => (
-                          <option key={`cc-${code}`} value={code}>
-                            {code}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {previewCounter && (
-                      <div className="ml-1 mt-1 text-xs opacity-70">
-                        {previewCounter}
-                      </div>
-                    )}
-                  </Field>
+                      </Field>
 
-                  <div className="text-xs opacity-70 md:col-span-2">
-                    Se guarda el valor y contravalor <b>sin tipo de cambio</b>.
-                    Útil si pagás en una moneda pero el acuerdo está en otra.
-                  </div>
+                      <Field id="counter" label="Contravalor">
+                        <div className="flex gap-2">
+                          <input
+                            inputMode="decimal"
+                            className={inputBase}
+                            placeholder={formatMoney(
+                              0,
+                              counterCurrency || effectivePaymentCurrency || "ARS",
+                            )}
+                            value={counterAmount}
+                            onChange={(e) =>
+                              setCounterAmount(
+                                formatMoneyInput(
+                                  e.target.value,
+                                  counterCurrency || effectivePaymentCurrency,
+                                  { preferDotDecimal: shouldPreferDotDecimal(e) },
+                                ),
+                              )
+                            }
+                          />
+                          <select
+                            className={`${inputBase} cursor-pointer appearance-none`}
+                            value={counterCurrency}
+                            onChange={(e) => {
+                              const nextCurrency = e.target.value;
+                              setCounterCurrency(nextCurrency);
+                              if (counterAmount) {
+                                setCounterAmount(
+                                  formatMoneyInput(counterAmount, nextCurrency),
+                                );
+                              }
+                            }}
+                            disabled={currencyOptions.length === 0}
+                          >
+                            <option value="" disabled>
+                              {currencyOptions.length ? "Moneda" : "Sin monedas"}
+                            </option>
+                            {currencyOptions.map((code) => (
+                              <option key={`cc-${code}`} value={code}>
+                                {code}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {previewCounter && (
+                          <div className="ml-1 mt-1 text-xs opacity-70">
+                            {previewCounter}
+                          </div>
+                        )}
+                      </Field>
+
+                      <div className="text-xs opacity-70 md:col-span-2">
+                        Se guarda el valor y contravalor <b>sin tipo de cambio</b>.
+                        Útil si pagás en una moneda pero el acuerdo está en otra.
+                      </div>
+                    </>
+                  )}
                 </Section>
               )}
 
@@ -3066,17 +3141,6 @@ export default function OperatorPaymentForm({
                   )}
                 </button>
 
-                {action === "create" && (
-                  <button
-                    type="button"
-                    onClick={useSuggested}
-                    disabled={selectedServices.length === 0}
-                    className="rounded-full bg-sky-950/10 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition active:scale-[0.98] disabled:opacity-50 dark:bg-white/10 dark:text-white"
-                    title="Usar sugeridos"
-                  >
-                    Usar sugeridos
-                  </button>
-                )}
               </div>
             </motion.form>
           </motion.div>

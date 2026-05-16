@@ -80,22 +80,27 @@ type Props = {
 const Section = ({
   title,
   desc,
+  headerRight,
   children,
 }: {
   title: string;
   desc?: string;
+  headerRight?: ReactNode;
   children: ReactNode;
 }) => (
   <section className="rounded-2xl border border-white/10 bg-white/10 p-4">
-    <div className="mb-3">
-      <h3 className="text-base font-semibold tracking-tight text-sky-950 dark:text-white">
-        {title}
-      </h3>
-      {desc && (
-        <p className="mt-1 text-xs font-light text-sky-950/70 dark:text-white/70">
-          {desc}
-        </p>
-      )}
+    <div className="mb-3 flex items-start justify-between gap-3">
+      <div>
+        <h3 className="text-base font-semibold tracking-tight text-sky-950 dark:text-white">
+          {title}
+        </h3>
+        {desc && (
+          <p className="mt-1 text-xs font-light text-sky-950/70 dark:text-white/70">
+            {desc}
+          </p>
+        )}
+      </div>
+      {headerRight && <div className="shrink-0">{headerRight}</div>}
     </div>
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">{children}</div>
   </section>
@@ -224,6 +229,8 @@ export default function OperatorPaymentServicesSection({
   const [excessAction, setExcessAction] = useState<ExcessAction>("carry");
   const [excessMissingAccountAction, setExcessMissingAccountAction] =
     useState<ExcessMissingAccountAction>("carry");
+  const [serviceAllocationsEnabled, setServiceAllocationsEnabled] =
+    useState(false);
 
   useEffect(() => {
     if (selectedServices.length === 0) {
@@ -237,6 +244,7 @@ export default function OperatorPaymentServicesSection({
       });
       setExcessAction("carry");
       setExcessMissingAccountAction("carry");
+      setServiceAllocationsEnabled(false);
     }
   }, [selectedServices.length]);
 
@@ -806,20 +814,68 @@ export default function OperatorPaymentServicesSection({
           )}
 
           {selectedServices.length > 0 && (
-            <div className="md:col-span-2">
-              <ServiceAllocationsEditor
-                services={selectedServices}
-                paymentCurrency={currency}
-                paymentAmount={parseAmountInput(amount) ?? 0}
-                initialAllocations={initialAllocations}
-                resetKey={resetKey}
-                excessAction={excessAction}
-                onExcessActionChange={setExcessAction}
-                excessMissingAccountAction={excessMissingAccountAction}
-                onExcessMissingAccountActionChange={setExcessMissingAccountAction}
-                onSummaryChange={setAllocationSummary}
-              />
-            </div>
+            <Section
+              title="Ajustar monto por servicio"
+              desc="Asigná cuánto del pago corresponde a cada servicio seleccionado."
+              headerRight={
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={serviceAllocationsEnabled}
+                  onClick={() =>
+                    setServiceAllocationsEnabled(!serviceAllocationsEnabled)
+                  }
+                  className={[
+                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                    serviceAllocationsEnabled
+                      ? "bg-sky-500/70"
+                      : "bg-sky-950/20 dark:bg-white/20",
+                  ].join(" ")}
+                >
+                  <span
+                    className={[
+                      "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform",
+                      serviceAllocationsEnabled ? "translate-x-5" : "translate-x-1",
+                    ].join(" ")}
+                  />
+                </button>
+              }
+            >
+              <div className="md:col-span-2">
+                <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-sky-950/80 dark:text-white/80">
+                  <span>
+                    Asignado: {formatMoney(allocationSummary.assignedTotal, currency || "ARS")}
+                  </span>
+                  <span>
+                    Total pago: {formatMoney(parseAmountInput(amount) ?? 0, currency || "ARS")}
+                  </span>
+                  {allocationSummary.excess > 0.01 && (
+                    <span>
+                      Excedente: {formatMoney(allocationSummary.excess, currency || "ARS")}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div
+                className={`md:col-span-2 ${
+                  serviceAllocationsEnabled ? "" : "hidden"
+                }`}
+              >
+                <ServiceAllocationsEditor
+                  services={selectedServices}
+                  paymentCurrency={currency}
+                  paymentAmount={parseAmountInput(amount) ?? 0}
+                  initialAllocations={initialAllocations}
+                  resetKey={resetKey}
+                  excessAction={excessAction}
+                  onExcessActionChange={setExcessAction}
+                  excessMissingAccountAction={excessMissingAccountAction}
+                  onExcessMissingAccountActionChange={setExcessMissingAccountAction}
+                  onSummaryChange={setAllocationSummary}
+                />
+              </div>
+            </Section>
           )}
         </>
       )}

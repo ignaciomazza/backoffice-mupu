@@ -24,6 +24,10 @@ import {
 import { formatMoneyInput } from "@/utils/moneyInput";
 import { parseAmountInput } from "@/utils/receipts/receiptForm";
 import {
+  DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+  normalizeReceiptAdjustmentLabel,
+} from "@/utils/receipts/paymentAdjustments";
+import {
   downloadCsvFile,
   formatCsvNumber,
   toCsvHeaderRow,
@@ -112,6 +116,7 @@ const createPaymentLine = (currency = "ARS"): InvestmentPaymentLineDraft => ({
     .toUpperCase(),
   fee_mode: "NONE",
   fee_value: "",
+  fee_label: DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
 });
 
 async function safeJson<T>(res: Response): Promise<T | null> {
@@ -751,6 +756,7 @@ export default function Page() {
                     ? toMoneyDraft(feeValueRaw, paymentCurrency || "ARS")
                     : String(feeValueRaw)
                   : "",
+              fee_label: normalizeReceiptAdjustmentLabel(line?.fee_label),
             };
           })
           .filter((line): line is InvestmentPaymentLineDraft => line !== null)
@@ -775,6 +781,7 @@ export default function Page() {
               payment_currency: fallbackPaymentCurrency || "ARS",
               fee_mode: "NONE",
               fee_value: "",
+              fee_label: DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
             },
           ];
     const decodedPdfItems = decodeInvestmentPdfItemsPayload(
@@ -1733,6 +1740,9 @@ export default function Page() {
         payment_method: String(line.payment_method || "").trim(),
         account: String(line.account || "").trim(),
         payment_currency: paymentCurrency || "ARS",
+        fee_label: normalizeReceiptAdjustmentLabel(
+          line.fee_label ?? DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+        ),
         fee_mode,
         fee_value:
           fee_mode === "NONE" || !Number.isFinite(feeValue) || feeValue < 0
@@ -2144,6 +2154,7 @@ export default function Page() {
         payment_method: string;
         account?: string;
         payment_currency: string;
+        fee_label?: string;
         fee_mode?: "FIXED" | "PERCENT";
         fee_value?: number;
         fee_amount: number;
@@ -2182,6 +2193,9 @@ export default function Page() {
           payment_currency: String(line.payment_currency || "ARS")
             .trim()
             .toUpperCase(),
+          fee_label: normalizeReceiptAdjustmentLabel(
+            line.fee_label ?? DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
+          ),
           fee_mode:
             line.fee_mode === "FIXED" || line.fee_mode === "PERCENT"
               ? line.fee_mode

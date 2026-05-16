@@ -419,7 +419,25 @@ export default async function handler(
             if (metadataInput === null) {
               delete merged.payload;
             } else {
-              merged.payload = metadataInput;
+              const currentPayload =
+                merged.payload &&
+                typeof merged.payload === "object" &&
+                !Array.isArray(merged.payload)
+                  ? (merged.payload as Record<string, unknown>)
+                  : null;
+              const nextPayload =
+                metadataInput &&
+                typeof metadataInput === "object" &&
+                !Array.isArray(metadataInput)
+                  ? (metadataInput as Record<string, unknown>)
+                  : null;
+              merged.payload =
+                currentPayload && nextPayload
+                  ? ({
+                      ...currentPayload,
+                      ...nextPayload,
+                    } as Prisma.InputJsonObject)
+                  : metadataInput;
             }
           }
 

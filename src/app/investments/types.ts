@@ -42,6 +42,7 @@ export type Investment = {
         fee_mode?: "FIXED" | "PERCENT" | null;
         fee_value?: number | null;
         fee_amount?: number | null;
+        fee_label?: string | null;
       }[]
     | null;
   base_amount?: number | null;
@@ -100,6 +101,7 @@ export type InvestmentPaymentLineDraft = {
   payment_currency: string;
   fee_mode: "NONE" | "FIXED" | "PERCENT";
   fee_value: string;
+  fee_label: string;
 };
 
 export type InvestmentManualPdfItemDraft = {
