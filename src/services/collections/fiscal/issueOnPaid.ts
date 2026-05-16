@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { toDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
+import { getBillingConfig } from "@/lib/billingConfig";
 import { getAfipForAgency } from "@/services/afip/afipConfig";
 import { resolveSalesPoint } from "@/services/afip/salesPoints";
 import { logBillingEvent } from "@/services/billing/events";
@@ -34,6 +35,12 @@ type EmitResult = {
   payload?: Prisma.InputJsonValue;
 };
 
+type IvaLine = {
+  Id: number;
+  BaseImp: number;
+  Importe: number;
+};
+
 function shouldMockFiscalIssue(): boolean {
   const mode = String(process.env.BILLING_FISCAL_ISSUER_MODE || "").trim().toUpperCase();
   if (mode === "MOCK") return true;
@@ -58,6 +65,84 @@ function parseOptionalPositiveIntEnv(name: string): number | null {
 function normalizeError(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error || "Error desconocido al emitir AFIP");
+}
+
+function round2(value: number): number {
+  const safe = Number.isFinite(value) ? value : 0;
+  return Math.round(safe * 100) / 100;
+}
+
+function resolveIvaIdFromRate(rate: number): number {
+  if (Math.abs(rate - 0.105) <= 0.00001) return 4;
+  if (Math.abs(rate - 0.21) <= 0.00001) return 5;
+  if (Math.abs(rate - 0.27) <= 0.00001) return 6;
+  if (Math.abs(rate - 0.05) <= 0.00001) return 7;
+  if (Math.abs(rate - 0.025) <= 0.00001) return 8;
+  return 5;
+}
+
+function shouldUseIvaBreakdown(cbteTipo: number): boolean {
+  return [1, 2, 3, 6, 7, 8].includes(cbteTipo);
+}
+
+function buildAfipAmounts(amountArs: number, cbteTipo: number): {
+  impTotal: number;
+  impTotConc: number;
+  impNeto: number;
+  impIva: number;
+  iva: IvaLine[];
+} {
+  const impTotal = round2(amountArs);
+  if (!Number.isFinite(impTotal) || impTotal <= 0) {
+    return {
+      impTotal: 0,
+      impTotConc: 0,
+      impNeto: 0,
+      impIva: 0,
+      iva: [],
+    };
+  }
+
+  if (!shouldUseIvaBreakdown(cbteTipo)) {
+    return {
+      impTotal,
+      impTotConc: impTotal,
+      impNeto: 0,
+      impIva: 0,
+      iva: [],
+    };
+  }
+
+  const configuredRate = Number(getBillingConfig().defaultVatRate);
+  const vatRate =
+    Number.isFinite(configuredRate) && configuredRate > 0 ? configuredRate : 0.21;
+
+  const impNeto = round2(impTotal / (1 + vatRate));
+  const impIva = round2(impTotal - impNeto);
+
+  if (impNeto <= 0 || impIva <= 0) {
+    return {
+      impTotal,
+      impTotConc: impTotal,
+      impNeto: 0,
+      impIva: 0,
+      iva: [],
+    };
+  }
+
+  return {
+    impTotal,
+    impTotConc: 0,
+    impNeto,
+    impIva,
+    iva: [
+      {
+        Id: resolveIvaIdFromRate(vatRate),
+        BaseImp: impNeto,
+        Importe: impIva,
+      },
+    ],
+  };
 }
 
 async function emitMock(chargeId: number, amountArs: number): Promise<EmitResult> {
@@ -114,6 +199,7 @@ async function emitWithAfip(params: {
   const todayKey = toDateKeyInBuenosAires(new Date());
   if (!todayKey) throw new Error("No se pudo resolver fecha local para AFIP");
   const cbteFch = todayKey.replace(/-/g, "");
+  const amounts = buildAfipAmounts(amountArs, cbteTipo);
 
   const payload = {
     CantReg: 1,
@@ -125,15 +211,15 @@ async function emitWithAfip(params: {
     CbteDesde: nextVoucher,
     CbteHasta: nextVoucher,
     CbteFch: cbteFch,
-    ImpTotal: amountArs,
-    ImpTotConc: 0,
-    ImpNeto: amountArs,
+    ImpTotal: amounts.impTotal,
+    ImpTotConc: amounts.impTotConc,
+    ImpNeto: amounts.impNeto,
     ImpOpEx: 0,
-    ImpIVA: 0,
+    ImpIVA: amounts.impIva,
     ImpTrib: 0,
     MonId: "PES",
     MonCotiz: 1,
-    Iva: [],
+    Iva: amounts.iva,
   };
 
   const created = await afip.ElectronicBilling.createVoucher(payload);

@@ -44,6 +44,7 @@ describe("issueFiscalForCharge", () => {
     delete process.env.BILLING_FISCAL_ISSUER_MODE;
     delete process.env.BILLING_AFIP_PTO_VTA;
     delete process.env.BILLING_AFIP_CBTE_TIPO;
+    process.env.BILLING_DEFAULT_VAT_RATE = "0.21";
     process.env.AFIP_ENV = "production";
 
     mocks.prisma.agencyBillingCharge.findUnique.mockResolvedValue({
@@ -100,6 +101,17 @@ describe("issueFiscalForCharge", () => {
         ImpTotal: 1000,
       }),
     );
+    const payload = mocks.afipClient.ElectronicBilling.createVoucher.mock.calls[0][0];
+    expect(payload.ImpTotConc).toBe(0);
+    expect(payload.ImpNeto).toBeCloseTo(826.45, 2);
+    expect(payload.ImpIVA).toBeCloseTo(173.55, 2);
+    expect(payload.Iva).toEqual([
+      {
+        Id: 5,
+        BaseImp: 826.45,
+        Importe: 173.55,
+      },
+    ]);
     expect(mocks.prisma.agencyBillingFiscalDocument.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -149,5 +161,24 @@ describe("issueFiscalForCharge", () => {
         }),
       }),
     );
+  });
+
+  it("sends non-taxed amounts for comprobantes without IVA breakdown", async () => {
+    process.env.BILLING_AFIP_CBTE_TIPO = "11"; // Factura C
+
+    const result = await issueFiscalForCharge({
+      chargeId: 10,
+      issuerAgencyId: 1,
+      amountArsOverride: 1000,
+    });
+
+    expect(result.ok).toBe(true);
+    const payload = mocks.afipClient.ElectronicBilling.createVoucher.mock.calls[0][0];
+    expect(payload.CbteTipo).toBe(11);
+    expect(payload.ImpTotal).toBe(1000);
+    expect(payload.ImpTotConc).toBe(1000);
+    expect(payload.ImpNeto).toBe(0);
+    expect(payload.ImpIVA).toBe(0);
+    expect(payload.Iva).toEqual([]);
   });
 });
