@@ -177,6 +177,27 @@ export async function createCreditNote(
     };
   });
 
+  const voucherNoGravado = Number(voucherData.ImpTotConc || 0);
+  const voucherExento = Number(voucherData.ImpOpEx || 0);
+  const extraNonComputable = Number((voucherNoGravado + voucherExento).toFixed(2));
+
+  if (extraNonComputable > 0) {
+    serviceDetails.push({
+      sale_price: extraNonComputable,
+      taxableBase21: 0,
+      commission21: 0,
+      tax_21: 0,
+      vatOnCommission21: 0,
+      taxableBase10_5: 0,
+      commission10_5: 0,
+      tax_105: 0,
+      vatOnCommission10_5: 0,
+      taxableCardInterest: 0,
+      vatOnCardInterest: 0,
+      nonComputable: extraNonComputable,
+    });
+  }
+
   // 6) Moneda de la factura original (en nuestras facturas guardamos MonId/afipCurrency: "PES"/"DOL")
   //    Si no existiera en voucherData, tomamos orig.currency (que ya guardamos como afipCurrency).
   const afipCurrency =

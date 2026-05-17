@@ -161,14 +161,6 @@ export async function createCreditNoteVoucher(
         BaseImp: +interestBase.toFixed(2),
         Importe: +interestVat.toFixed(2),
       });
-    // Exento explícito
-    if (exento > 0)
-      ivaEntries.push({
-        Id: 3,
-        BaseImp: +exento.toFixed(2),
-        Importe: 0,
-      });
-
     // Fusionar por Id
     const merged: Record<number, IVAEntry> = {};
     ivaEntries.forEach((e) => {
@@ -186,18 +178,25 @@ export async function createCreditNoteVoucher(
 
     const totalIVAraw = mergedIva.reduce((sum, e) => sum + e.Importe, 0);
     const totalIVA = parseFloat(totalIVAraw.toFixed(2));
-    const neto = parseFloat((adjustedTotal - totalIVA).toFixed(2));
-
-    // Asegurar que la suma de bases = neto (redondeos)
-    const baseSum = mergedIva.reduce((sum, e) => sum + e.BaseImp, 0);
-    const diff = parseFloat((neto - baseSum).toFixed(2));
-    if (Math.abs(diff) > 0.01) {
-      mergedIva.push({
-        Id: 3,
-        BaseImp: diff,
-        Importe: 0,
-      });
+    const netoGravado = parseFloat(
+      mergedIva.reduce((sum, e) => sum + e.BaseImp, 0).toFixed(2),
+    );
+    const netoCalculado = parseFloat((adjustedTotal - totalIVA).toFixed(2));
+    const conceptosNoGravados = parseFloat(
+      (netoCalculado - netoGravado).toFixed(2),
+    );
+    if (conceptosNoGravados < -0.01) {
+      return {
+        success: false,
+        message:
+          "No se pudo emitir: el neto gravado supera el neto total calculado. Revisá el desglose fiscal.",
+      };
     }
+    const impTotConc = parseFloat(
+      Math.max(conceptosNoGravados, exento, 0).toFixed(2),
+    );
+    const impOpEx = 0;
+    const neto = netoGravado;
 
     // ===== 4) Estado AFIP =====
     const status =
@@ -307,7 +306,8 @@ export async function createCreditNoteVoucher(
 
       ...(cbtesAsoc ? { CbtesAsoc: cbtesAsoc } : {}),
       ImpTotal: adjustedTotal,
-      ImpTotConc: 0,
+      ImpTotConc: impTotConc,
+      ImpOpEx: impOpEx,
       ImpNeto: neto,
       ImpIVA: totalIVA,
       MonId: currency,

@@ -22,7 +22,11 @@ export interface VoucherData {
   ImpTotal: number;
   ImpNeto: number;
   ImpIVA: number;
+  ImpTotConc?: number;
+  ImpOpEx?: number;
   ImpOtrosTributos?: number;
+  MonId?: string;
+  MonCotiz?: number;
 
   CAE: string;
   CAEFchVto: string;
@@ -219,7 +223,11 @@ const InvoiceDocument: React.FC<{
     ImpTotal,
     ImpNeto,
     ImpIVA,
+    ImpTotConc = 0,
+    ImpOpEx = 0,
     ImpOtrosTributos = 0,
+    MonId,
+    MonCotiz,
     CAE,
     CAEFchVto,
     DocNro,
@@ -249,6 +257,26 @@ const InvoiceDocument: React.FC<{
     (item) => typeof item.amount === "number" && item.amount > 0,
   );
 
+  const entry21 = Iva.find((entry) => entry.Id === 5);
+  const entry10_5 = Iva.find((entry) => entry.Id === 4);
+  const gravado21 = Number(entry21?.BaseImp ?? 0);
+  const iva21 = Number(entry21?.Importe ?? 0);
+  const gravado10_5 = Number(entry10_5?.BaseImp ?? 0);
+  const iva10_5 = Number(entry10_5?.Importe ?? 0);
+  const exentoNoGravadoLegacy = Iva.filter((entry) => entry.Id === 3).reduce(
+    (sum, entry) => sum + Number(entry.BaseImp || 0),
+    0,
+  );
+  const exentoNoGravado = Number(
+    (
+      Number(ImpTotConc || 0) +
+      Number(ImpOpEx || 0) +
+      Number(exentoNoGravadoLegacy || 0)
+    ).toFixed(2),
+  );
+  const monedaComprobante = String(MonId || currency || "").toUpperCase() || "PES";
+  const cotizacion = typeof MonCotiz === "number" && Number.isFinite(MonCotiz) ? MonCotiz : 1;
+
   // Ítems personalizados (si hay monto) o sintéticos por alícuota.
   const items =
     customItemsWithAmount.length > 0
@@ -262,23 +290,35 @@ const InvoiceDocument: React.FC<{
             subtotal: amount,
           };
         })
-      : Iva.map((e) => {
-    const rate = e.Id === 5 ? 21 : e.Id === 4 ? 10.5 : 0;
-    const desc =
-      rate === 21
-        ? description21[0] || `IVA ${rate}%`
-        : rate === 10.5
-          ? description10_5[0] || `IVA ${rate}%`
-          : descriptionNonComputable[0] || `IVA ${rate}%`;
-    const amount = e.BaseImp + e.Importe;
-    return {
-      code: "-",
-      description: desc,
-      quantity: 1,
-      unitPrice: amount,
-      subtotal: amount,
-    };
-  });
+      : [
+          ...Iva.filter((entry) => entry.Id === 5 || entry.Id === 4).map((e) => {
+            const rate = e.Id === 5 ? 21 : 10.5;
+            const desc =
+              rate === 21
+                ? description21[0] || `IVA ${rate}%`
+                : description10_5[0] || `IVA ${rate}%`;
+            const amount = e.BaseImp + e.Importe;
+            return {
+              code: "-",
+              description: desc,
+              quantity: 1,
+              unitPrice: amount,
+              subtotal: amount,
+            };
+          }),
+          ...(exentoNoGravado > 0
+            ? [
+                {
+                  code: "-",
+                  description:
+                    descriptionNonComputable[0] || "Exento / No gravado",
+                  quantity: 1,
+                  unitPrice: exentoNoGravado,
+                  subtotal: exentoNoGravado,
+                },
+              ]
+            : []),
+        ];
 
   const mime = logoMime || "image/png";
   const logoSrc = logoBase64 ? `data:${mime};base64,${logoBase64}` : undefined;
@@ -313,6 +353,14 @@ const InvoiceDocument: React.FC<{
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Emisión:</Text>
             <Text style={styles.infoValue}>{fechaEm}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Moneda:</Text>
+            <Text style={styles.infoValue}>{monedaComprobante}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Tipo cambio:</Text>
+            <Text style={styles.infoValue}>{cotizacion}</Text>
           </View>
           {(departureDate || returnDate) && (
             <View style={styles.infoRow}>
@@ -375,8 +423,15 @@ const InvoiceDocument: React.FC<{
 
         {/* Totales */}
         <View style={styles.summary}>
-          <Text>Subtotal Neto: {safeFmtCurrency(ImpNeto, currency)}</Text>
-          <Text>IVA: {safeFmtCurrency(ImpIVA, currency)}</Text>
+          <Text>Gravado 21%: {safeFmtCurrency(gravado21, currency)}</Text>
+          <Text>IVA 21%: {safeFmtCurrency(iva21, currency)}</Text>
+          <Text>Gravado 10,5%: {safeFmtCurrency(gravado10_5, currency)}</Text>
+          <Text>IVA 10,5%: {safeFmtCurrency(iva10_5, currency)}</Text>
+          <Text>
+            Exento / No gravado: {safeFmtCurrency(exentoNoGravado, currency)}
+          </Text>
+          <Text>Neto gravado: {safeFmtCurrency(ImpNeto, currency)}</Text>
+          <Text>IVA total: {safeFmtCurrency(ImpIVA, currency)}</Text>
           {ImpOtrosTributos !== undefined && (
             <Text>
               Otros Tributos: {safeFmtCurrency(ImpOtrosTributos, currency)}

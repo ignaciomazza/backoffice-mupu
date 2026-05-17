@@ -162,6 +162,7 @@ export async function createVoucherService(
     let totalIVA = 0;
     let neto = 0;
     let mergedIvaEntries: IVAEntry[] = [];
+    let impTotConc = 0;
 
     if (manualTotals) {
       const manual = computeManualTotals(manualTotals);
@@ -169,9 +170,25 @@ export async function createVoucherService(
         return { success: false, message: manual.error };
       }
       adjustedTotal = manual.result.impTotal;
-      totalIVA = manual.result.impIVA;
-      neto = manual.result.impNeto;
-      mergedIvaEntries = manual.result.ivaEntries;
+      impTotConc = parseFloat(
+        manual.result.ivaEntries
+          .filter((entry) => entry.Id === 3)
+          .reduce((sum, entry) => sum + Number(entry.BaseImp || 0), 0)
+          .toFixed(2),
+      );
+      mergedIvaEntries = manual.result.ivaEntries
+        .filter((entry) => entry.Id !== 3)
+        .map((entry) => ({
+          Id: entry.Id,
+          BaseImp: parseFloat(Number(entry.BaseImp || 0).toFixed(2)),
+          Importe: parseFloat(Number(entry.Importe || 0).toFixed(2)),
+        }));
+      totalIVA = parseFloat(
+        mergedIvaEntries.reduce((sum, entry) => sum + entry.Importe, 0).toFixed(2),
+      );
+      neto = parseFloat(
+        mergedIvaEntries.reduce((sum, entry) => sum + entry.BaseImp, 0).toFixed(2),
+      );
     } else {
       // 2) Totales
       const saleTotal = serviceDetails.reduce(
@@ -249,15 +266,24 @@ export async function createVoucherService(
       totalIVA = parseFloat(
         mergedIvaEntries.reduce((sum, e) => sum + e.Importe, 0).toFixed(2),
       );
-      neto = parseFloat((adjustedTotal - totalIVA).toFixed(2));
-      const totalBase = mergedIvaEntries.reduce((sum, e) => sum + e.BaseImp, 0);
-      if (Math.abs(neto - totalBase) > 0.01) {
-        mergedIvaEntries.push({
-          Id: 3,
-          BaseImp: parseFloat((neto - totalBase).toFixed(2)),
-          Importe: 0,
-        });
+      const netoCalculado = parseFloat((adjustedTotal - totalIVA).toFixed(2));
+      const netoGravado = parseFloat(
+        mergedIvaEntries.reduce((sum, e) => sum + e.BaseImp, 0).toFixed(2),
+      );
+      const conceptosNoGravados = parseFloat(
+        (netoCalculado - netoGravado).toFixed(2),
+      );
+
+      if (conceptosNoGravados < -0.01) {
+        return {
+          success: false,
+          message:
+            "No se pudo emitir: el neto gravado supera el neto total calculado. Revisá el desglose fiscal.",
+        };
       }
+
+      neto = netoGravado;
+      impTotConc = conceptosNoGravados > 0 ? conceptosNoGravados : 0;
     }
 
     // 4) Estado AFIP / pto. de venta / numeración
@@ -354,7 +380,8 @@ export async function createVoucherService(
       FchServHasta,
       FchVtoPago,
       ImpTotal: adjustedTotal,
-      ImpTotConc: 0,
+      ImpTotConc: impTotConc,
+      ImpOpEx: 0,
       ImpNeto: neto,
       ImpIVA: totalIVA,
       MonId: currency,
