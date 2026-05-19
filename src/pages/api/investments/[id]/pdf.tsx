@@ -383,6 +383,7 @@ export default async function handler(
           id_service: true,
           agency_service_id: true,
           booking_id: true,
+          reference: true,
           type: true,
           destination: true,
           cost_price: true,
@@ -396,6 +397,7 @@ export default async function handler(
       const parts = [`N° ${service.agency_service_id ?? service.id_service}`];
       if (service.type) parts.push(service.type);
       if (service.destination) parts.push(service.destination);
+      if (service.reference) parts.push(`Ref. ${service.reference}`);
       return [service.id_service, parts.join(" · ")] as const;
     }),
   );
@@ -419,6 +421,7 @@ export default async function handler(
           id: s.id_service,
           serviceNumber: s.agency_service_id ?? s.id_service,
           bookingNumber: s.booking?.agency_booking_id ?? s.booking_id,
+          reference: s.reference,
           type: s.type,
           destination: s.destination,
           cost: s.cost_price != null ? toNum(s.cost_price, 0) : null,

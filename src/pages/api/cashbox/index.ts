@@ -922,6 +922,119 @@ async function getMonthlyMovements(
     };
   });
 
+  const groupOperatorPayments = await prisma.travelGroupOperatorPayment.findMany({
+    where: {
+      id_agency: agencyId,
+      OR: [
+        {
+          paid_at: {
+            gte: from,
+            lte: to,
+          },
+        },
+        {
+          AND: [
+            { paid_at: null },
+            {
+              created_at: {
+                gte: from,
+                lte: to,
+              },
+            },
+          ],
+        },
+      ],
+    },
+    select: {
+      id_travel_group_operator_payment: true,
+      travel_group_id: true,
+      operator_id: true,
+      category: true,
+      description: true,
+      amount: true,
+      currency: true,
+      paid_at: true,
+      created_at: true,
+      payment_method: true,
+      account: true,
+    },
+  });
+
+  const groupOperatorIds = Array.from(
+    new Set(
+      groupOperatorPayments
+        .map((payment) => payment.operator_id)
+        .filter((id): id is number => id != null && Number.isFinite(id) && id > 0),
+    ),
+  );
+  const groupIds = Array.from(
+    new Set(
+      groupOperatorPayments
+        .map((payment) => payment.travel_group_id)
+        .filter((id): id is number => id != null && Number.isFinite(id) && id > 0),
+    ),
+  );
+
+  const [groupOperators, groups] = await Promise.all([
+    groupOperatorIds.length
+      ? prisma.operator.findMany({
+          where: { id_agency: agencyId, id_operator: { in: groupOperatorIds } },
+          select: { id_operator: true, name: true },
+        })
+      : Promise.resolve([]),
+    groupIds.length
+      ? prisma.travelGroup.findMany({
+          where: { id_agency: agencyId, id_travel_group: { in: groupIds } },
+          select: {
+            id_travel_group: true,
+            agency_travel_group_id: true,
+            name: true,
+          },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const operatorNameById = new Map(
+    groupOperators.map((operator) => [operator.id_operator, operator.name ?? null]),
+  );
+  const groupById = new Map(
+    groups.map((group) => [group.id_travel_group, group]),
+  );
+
+  const groupOperatorPaymentMovements: CashboxMovement[] = groupOperatorPayments.map(
+    (payment) => {
+      const date = payment.paid_at ?? payment.created_at;
+      const operatorName = payment.operator_id
+        ? (operatorNameById.get(payment.operator_id) ?? null)
+        : null;
+      const group = groupById.get(payment.travel_group_id);
+      const bookingLabel = group
+        ? `Grupal N° ${group.agency_travel_group_id ?? group.id_travel_group}${group.name ? ` • ${group.name}` : ""}`
+        : `Grupal #${payment.travel_group_id}`;
+      const description =
+        payment.description?.trim() ||
+        payment.category?.trim() ||
+        "Pago a operador (grupal)";
+
+      return {
+        id: `group_operator_payment:${payment.id_travel_group_operator_payment}`,
+        date: toCashboxDateIso(date),
+        type: "expense",
+        source: "investment",
+        description,
+        currency: payment.currency,
+        amount: decimalToNumber(payment.amount),
+        operatorName,
+        bookingLabel,
+        dueDate: null,
+        categoryName: payment.category ?? "Pago a operador (grupal)",
+        payeeName: operatorName,
+        paymentMethod: payment.payment_method ?? null,
+        account: payment.account ?? null,
+      };
+    },
+  );
+
   /* ----------------------------
    * 3bis) MOVIMIENTOS INTERNOS: Transferencias
    * ---------------------------- */
@@ -1190,6 +1303,7 @@ async function getMonthlyMovements(
     ...receiptMovements,
     ...otherIncomeMovements,
     ...investmentMovements,
+    ...groupOperatorPaymentMovements,
     ...transferMovements,
     ...adjustmentMovements,
     ...clientPaymentMovements,

@@ -51,6 +51,7 @@ export type OperatorPaymentPdfData = {
     dateLabel?: string | null;
     serviceNumber?: number | null;
     bookingNumber?: number | null;
+    reference?: string | null;
     type?: string | null;
     destination?: string | null;
     cost?: number | null;
@@ -329,8 +330,10 @@ export default function OperatorPaymentDocument(props: OperatorPaymentPdfData) {
     const pieces: string[] = [];
     const typeLabel = String(svc.type || "").trim();
     const destinationLabel = String(svc.destination || "").trim();
+    const referenceLabel = String(svc.reference || "").trim();
     if (typeLabel) pieces.push(typeLabel);
     if (destinationLabel) pieces.push(destinationLabel);
+    if (referenceLabel) pieces.push(`Ref. ${referenceLabel}`);
     if (pieces.length === 0) {
       pieces.push(`Servicio ${svc.serviceNumber ?? svc.id}`);
     }

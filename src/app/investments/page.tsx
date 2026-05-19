@@ -42,7 +42,10 @@ import {
   resolveInvestmentEffectiveDate,
   resolveInvestmentEffectiveMonthKey,
 } from "@/utils/investments/effectiveDate";
-import { shouldConfirmFullExcessWithServices } from "@/utils/investments/allocations";
+import {
+  getOperatorPaymentAllocatableAmount,
+  shouldConfirmFullExcessWithServices,
+} from "@/utils/investments/allocations";
 import type { PlanKey } from "@/lib/billing/pricing";
 import type {
   Investment,
@@ -1765,6 +1768,16 @@ export default function Page() {
       ),
     [operatorPaymentLines],
   );
+  const operatorPaymentFeeTotal = useMemo(
+    () =>
+      round2(
+        operatorPaymentLines.reduce(
+          (sum, line) => sum + Number(line.fee_amount || 0),
+          0,
+        ),
+      ),
+    [operatorPaymentLines],
+  );
 
   const operatorPaymentCurrencies = useMemo(
     () =>
@@ -2300,6 +2313,10 @@ export default function Page() {
 
     const shouldAssociateServices = operatorOnly && associateServices;
     if (shouldAssociateServices) {
+      const allocatablePaymentAmount = getOperatorPaymentAllocatableAmount(
+        amountNum,
+        operatorPaymentFeeTotal,
+      );
       if (serviceSelection.serviceIds.length === 0) {
         toast.error("Seleccioná al menos un servicio o desactivá la asociación.");
         return;
@@ -2311,7 +2328,7 @@ export default function Page() {
       if (
         shouldConfirmFullExcessWithServices({
           hasServices: serviceSelection.serviceIds.length > 0,
-          paymentAmount: amountNum,
+          paymentAmount: allocatablePaymentAmount,
           assignedTotal: serviceSelection.assignedTotal,
           excess: serviceSelection.excess,
           tolerance: EXCESS_TOLERANCE,
@@ -3130,6 +3147,7 @@ export default function Page() {
       operatorId={form.operator_id ?? null}
       currency={form.currency}
       amount={form.amount}
+      paymentFeeAmount={operatorPaymentFeeTotal}
       operators={operators}
       onSelectionChange={handleServiceSelectionChange}
     />

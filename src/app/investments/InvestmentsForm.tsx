@@ -888,7 +888,7 @@ export default function InvestmentsForm({
                               : 0;
                         const lineCurrency =
                           line.payment_currency || defaultPaymentCurrency;
-                        const impact = round2(amount + feeAmount);
+                        const impact = round2(amount);
                         return (
                           <div
                             key={line.key}
@@ -1193,9 +1193,9 @@ export default function InvestmentsForm({
                             </div>
 
                             <div className="mt-2 text-xs text-sky-950/70 dark:text-white/70">
-                              Impacta en deuda: {formatMoney(impact, lineCurrency)}
+                              Total de la línea: {formatMoney(impact, lineCurrency)}
                               {line.fee_mode !== "NONE"
-                                ? ` (Ajuste: ${formatMoney(feeAmount, lineCurrency)})`
+                                ? ` (Incluye ajuste: ${formatMoney(feeAmount, lineCurrency)})`
                                 : ""}
                             </div>
                           </div>

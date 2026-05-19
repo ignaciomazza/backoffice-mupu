@@ -657,9 +657,9 @@ export default function ServiceAllocationsEditor({
                 return (
                   <div
                     key={`alloc-${svc.id_service}`}
-                    className="grid grid-cols-1 items-center gap-2 rounded-2xl border border-white/10 px-3 py-2 md:grid-cols-6"
+                    className="grid grid-cols-1 items-center gap-2 rounded-2xl border border-white/10 px-3 py-2 md:grid-cols-10"
                   >
-                    <div className="md:col-span-2">
+                    <div className="md:col-span-3">
                       <div className="text-sm font-medium">
                         N° {svc.agency_service_id ?? svc.id_service} · {svc.type}
                       </div>
@@ -667,13 +667,13 @@ export default function ServiceAllocationsEditor({
                         {svc.destination || ""}
                       </div>
                     </div>
-                    <div className="text-xs md:text-sm">
+                    <div className="text-xs md:col-span-1 md:text-sm">
                       <div className="text-sky-950/70 dark:text-white/70">Costo</div>
                       <div>
                         {formatMoney(Number(svc.cost_price || 0), row.serviceCur || "ARS")}
                       </div>
                     </div>
-                    <div>
+                    <div className="md:col-span-2">
                       <label className="text-xs text-sky-950/70 dark:text-white/70">
                         Monto a aplicar ({row.serviceCur})
                       </label>
@@ -692,7 +692,7 @@ export default function ServiceAllocationsEditor({
                         placeholder={formatMoney(0, row.serviceCur || "ARS")}
                       />
                     </div>
-                    <div>
+                    <div className="md:col-span-2">
                       {row.serviceCur !== paymentCur ? (
                         <>
                           <label className="text-xs text-sky-950/70 dark:text-white/70">
@@ -719,7 +719,7 @@ export default function ServiceAllocationsEditor({
                         </>
                       ) : null}
                     </div>
-                    <div>
+                    <div className="md:col-span-2">
                       <div className="text-xs text-sky-950/70 dark:text-white/70">
                         Equivalente en pago ({paymentCur || ""})
                       </div>

@@ -22,6 +22,7 @@ import {
   parseGroupOperatorPaymentAllocations,
   sumAssignedAmount,
 } from "@/lib/groups/operatorPaymentsValidation";
+import { getOperatorPaymentAllocatableAmount } from "@/utils/investments/allocations";
 
 const hasOwn = (obj: Record<string, unknown>, key: string) =>
   Object.prototype.hasOwnProperty.call(obj, key);
@@ -392,12 +393,13 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
     });
   }
 
+  const existingPayload = asPayloadObject(existing.payload);
   const allocations = hasAllocations
     ? parseGroupOperatorPaymentAllocations(body.allocations)
-    : parseGroupOperatorPaymentAllocations(asPayloadObject(existing.payload).allocations);
+    : parseGroupOperatorPaymentAllocations(existingPayload.allocations);
   const payments = hasPayments
     ? normalizeGroupOperatorPaymentLines(body.payments, existing.currency)
-    : normalizeGroupOperatorPaymentLines(asPayloadObject(existing.payload).payments, existing.currency);
+    : normalizeGroupOperatorPaymentLines(existingPayload.payments, existing.currency);
 
   if (
     hasPayments &&
@@ -431,9 +433,17 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
 
   const paymentCurrency = paymentCurrencies[0] ?? normalizeCurrencyCode(existing.currency);
   const amountValue = toAmountNumber(existing.amount);
+  const paymentFeeAmount =
+    payments.length > 0
+      ? payments.reduce((sum, line) => sum + (line.fee_amount || 0), 0)
+      : Math.max(0, Number(existingPayload.payment_fee_amount ?? 0) || 0);
+  const allocatableAmountValue = getOperatorPaymentAllocatableAmount(
+    amountValue,
+    paymentFeeAmount,
+  );
   const allocationsValidation = validateAllocations({
     allocations,
-    amountValue,
+    amountValue: allocatableAmountValue,
     paymentCurrency,
   });
   if (!allocationsValidation.ok) {
@@ -807,13 +817,23 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse) {
     payments.length > 0
       ? payments.reduce((sum, line) => sum + line.amount, 0)
       : requestedAmountValue;
+  const effectivePaymentFeeAmount =
+    payments.length > 0
+      ? payments.reduce((sum, line) => sum + (line.fee_amount || 0), 0)
+      : hasPayments
+        ? 0
+        : Math.max(0, Number(payloadObject.payment_fee_amount ?? 0) || 0);
+  const effectiveAllocatableAmountValue = getOperatorPaymentAllocatableAmount(
+    effectiveAmountValue,
+    effectivePaymentFeeAmount,
+  );
 
   const allocations = hasAllocations
     ? parseGroupOperatorPaymentAllocations(body.allocations)
     : parseGroupOperatorPaymentAllocations(payloadObject.allocations);
   const allocationsValidation = validateAllocations({
     allocations,
-    amountValue: effectiveAmountValue,
+    amountValue: effectiveAllocatableAmountValue,
     paymentCurrency: effectiveCurrency,
   });
   if (!allocationsValidation.ok) {

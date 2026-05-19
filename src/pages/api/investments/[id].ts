@@ -22,6 +22,7 @@ import {
   decodeInvestmentPdfItemsPayload,
   isEncodedInvestmentPdfItemsPayload,
 } from "@/utils/investments/pdfItemsPayload";
+import { getOperatorPaymentAllocatableAmount } from "@/utils/investments/allocations";
 
 /** ===== Auth helpers (unificado con otros endpoints) ===== */
 type TokenPayload = JWTPayload & {
@@ -1172,6 +1173,25 @@ export default async function handler(
           : b.payment_fee_amount === null
             ? null
             : (toDec(b.payment_fee_amount) as Prisma.Decimal | undefined);
+      const hasPaymentFeePayload = Object.prototype.hasOwnProperty.call(
+        b,
+        "payment_fee_amount",
+      );
+      const existingPaymentFeeAmount = schemaFlags.hasPaymentFeeAmount
+        ? Math.max(
+            0,
+            Number(
+              (exists as { payment_fee_amount?: unknown }).payment_fee_amount ?? 0,
+            ) || 0,
+          )
+        : 0;
+      const nextPaymentFeeAmountValue = normalizedPayments.length > 0
+        ? paymentsFeeAmount ?? 0
+        : hasPaymentFeePayload
+          ? b.payment_fee_amount === null
+            ? 0
+            : Math.max(0, Number(b.payment_fee_amount) || 0)
+          : existingPaymentFeeAmount;
 
       // conversión (acepta Decimal o null para limpiar)
       const base_amount =
@@ -1267,7 +1287,11 @@ export default async function handler(
           );
           const nextAmountValue =
             amount !== undefined ? amount : Number(exists.amount || 0);
-          if (assignedTotal - nextAmountValue > ASSIGNMENT_TOLERANCE) {
+          const nextAllocatableAmount = getOperatorPaymentAllocatableAmount(
+            nextAmountValue,
+            nextPaymentFeeAmountValue,
+          );
+          if (assignedTotal - nextAllocatableAmount > ASSIGNMENT_TOLERANCE) {
             return res.status(400).json({
               error: "El total asignado supera el monto del pago.",
             });
@@ -1283,6 +1307,10 @@ export default async function handler(
         (currency ?? exists.currency ?? "").toString().toUpperCase();
       const nextAmount =
         amount !== undefined ? amount : Number(exists.amount);
+      const nextAllocatableAmount = getOperatorPaymentAllocatableAmount(
+        nextAmount,
+        nextPaymentFeeAmountValue,
+      );
       const nextOperatorId =
         operator_id !== undefined ? operator_id : exists.operator_id;
 
@@ -1392,7 +1420,7 @@ export default async function handler(
             (sum, a) => sum + Number(a.amount_payment || 0),
             0,
           );
-          if (assignedTotal - nextAmount > ASSIGNMENT_TOLERANCE) {
+          if (assignedTotal - nextAllocatableAmount > ASSIGNMENT_TOLERANCE) {
             return res.status(400).json({
               error: "El total asignado supera el monto del pago.",
             });
@@ -1529,7 +1557,13 @@ export default async function handler(
 
         const nextAmountValue =
           amount !== undefined ? amount : Number(before.amount || 0);
-        const excessAmount = hasAssignments ? nextAmountValue - assignedTotal : 0;
+        const nextAllocatableAmountValue = getOperatorPaymentAllocatableAmount(
+          nextAmountValue,
+          nextPaymentFeeAmountValue,
+        );
+        const excessAmount = hasAssignments
+          ? nextAllocatableAmountValue - assignedTotal
+          : 0;
         const hasExcess = hasAssignments && excessAmount > ASSIGNMENT_TOLERANCE;
 
         let finalExcessAction =

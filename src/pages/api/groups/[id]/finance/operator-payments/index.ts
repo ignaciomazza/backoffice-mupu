@@ -25,6 +25,7 @@ import {
   parseGroupOperatorPaymentAllocations,
   sumAssignedAmount,
 } from "@/lib/groups/operatorPaymentsValidation";
+import { getOperatorPaymentAllocatableAmount } from "@/utils/investments/allocations";
 
 type OperatorPaymentRow = {
   id_travel_group_operator_payment: number;
@@ -54,6 +55,7 @@ function buildOperatorPaymentItem(row: OperatorPaymentRow) {
   const contextId = row.booking_id ?? null;
   const payload = asPayloadObject(row.payload);
   const allocations = parseGroupOperatorPaymentAllocations(payload.allocations);
+  const paymentFeeAmount = Number(payload.payment_fee_amount ?? 0);
   return {
     id_investment: row.id_travel_group_operator_payment,
     agency_investment_id: row.agency_travel_group_operator_payment_id,
@@ -83,6 +85,7 @@ function buildOperatorPaymentItem(row: OperatorPaymentRow) {
       : null,
     serviceIds: Array.isArray(row.service_refs) ? row.service_refs : [],
     allocations,
+    payment_fee_amount: Number.isFinite(paymentFeeAmount) ? paymentFeeAmount : 0,
     payment_method: row.payment_method,
     account: row.account,
     base_amount:
@@ -283,6 +286,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       )
     : 0;
   const amountNumber = paymentsAmount ?? Number(body.amount);
+  const allocatableAmount = getOperatorPaymentAllocatableAmount(
+    amountNumber,
+    paymentFeeAmount,
+  );
   if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
     return groupApiError(res, 400, "El monto del pago debe ser mayor a cero.", {
       code: "GROUP_FINANCE_AMOUNT_INVALID",
@@ -375,7 +382,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
   }
   const assignedTotal = sumAssignedAmount(allocations);
-  if (assignedTotal - amountNumber > GROUP_OPERATOR_PAYMENT_TOLERANCE) {
+  if (assignedTotal - allocatableAmount > GROUP_OPERATOR_PAYMENT_TOLERANCE) {
     return groupApiError(
       res,
       400,

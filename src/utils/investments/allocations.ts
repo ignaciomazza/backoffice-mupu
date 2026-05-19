@@ -21,6 +21,15 @@ const normalizeAmount = (value: unknown): number => {
   return parsed > 0 ? parsed : 0;
 };
 
+export const getOperatorPaymentAllocatableAmount = (
+  paymentAmount: number,
+  paymentFeeAmount: number = 0,
+): number => {
+  const total = normalizeAmount(paymentAmount);
+  const fee = normalizeAmount(paymentFeeAmount);
+  return round2(Math.max(0, total - fee));
+};
+
 export const buildCostProrationDraftNumbers = (opts: {
   services: AutoAllocationServiceInput[];
   paymentCurrency: string;

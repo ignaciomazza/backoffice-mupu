@@ -26,6 +26,7 @@ import {
   decodeInvestmentPdfItemsPayload,
   isEncodedInvestmentPdfItemsPayload,
 } from "@/utils/investments/pdfItemsPayload";
+import { getOperatorPaymentAllocatableAmount } from "@/utils/investments/allocations";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -1642,6 +1643,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       : Number.isFinite(Number(b.payment_fee_amount))
         ? Math.max(0, Number(b.payment_fee_amount))
         : undefined;
+    const allocatableAmount = getOperatorPaymentAllocatableAmount(
+      amount,
+      payment_fee_amount_num ?? 0,
+    );
     const payment_fee_amount = toDec(payment_fee_amount_num);
     const creditAmountFromPayments = payments.length
       ? round2(
@@ -1831,7 +1836,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         (sum, a) => sum + Number(a.amount_payment || 0),
         0,
       );
-      if (assignedTotal - amount > ASSIGNMENT_TOLERANCE) {
+      if (assignedTotal - allocatableAmount > ASSIGNMENT_TOLERANCE) {
         return res.status(400).json({
           error: "El total asignado supera el monto del pago.",
         });
@@ -1920,7 +1925,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       0,
     );
     const hasAssignments = normalizedAllocations.length > 0;
-    const excessAmount = hasAssignments ? amount - assignedTotal : 0;
+    const excessAmount = hasAssignments
+      ? allocatableAmount - assignedTotal
+      : 0;
     const hasExcess = hasAssignments && excessAmount > ASSIGNMENT_TOLERANCE;
     const finalExcessAction = hasExcess
       ? excess_action ?? "carry"

@@ -16,6 +16,20 @@ const operatorInvestment = {
   booking: null,
 };
 
+const groupOperatorPayment = {
+  id_travel_group_operator_payment: 901,
+  travel_group_id: 77,
+  operator_id: 501,
+  category: "Pago a operador grupal",
+  description: "Pago a operador grupal",
+  amount: new Prisma.Decimal("4200"),
+  currency: "ARS",
+  paid_at: new Date("2026-04-11T15:00:00.000Z"),
+  created_at: new Date("2026-04-11T15:00:00.000Z"),
+  payment_method: "Transferencia",
+  account: "Banco",
+};
+
 let investmentFindManyCalls = 0;
 
 const prismaMock = {
@@ -38,6 +52,15 @@ const prismaMock = {
   },
   investment: {
     findMany: vi.fn(),
+  },
+  travelGroupOperatorPayment: {
+    findMany: vi.fn(async () => []),
+  },
+  operator: {
+    findMany: vi.fn(async () => []),
+  },
+  travelGroup: {
+    findMany: vi.fn(async () => []),
   },
   financeTransfer: {
     findMany: vi.fn(async () => []),
@@ -124,6 +147,21 @@ describe("cashbox operator expenses", () => {
           return args?.where?.operator_id === null ? [] : [operatorInvestment];
         },
       );
+    prismaMock.travelGroupOperatorPayment.findMany
+      .mockReset()
+      .mockImplementation(async () => [groupOperatorPayment]);
+    prismaMock.operator.findMany
+      .mockReset()
+      .mockImplementation(async () => [{ id_operator: 501, name: "Operador Grupal" }]);
+    prismaMock.travelGroup.findMany
+      .mockReset()
+      .mockImplementation(async () => [
+        {
+          id_travel_group: 77,
+          agency_travel_group_id: 9001,
+          name: "Europa Abril",
+        },
+      ]);
   });
 
   it("includes operator payments even when they are hidden from the investments view", async () => {
@@ -151,6 +189,15 @@ describe("cashbox operator expenses", () => {
         source: "investment",
         categoryName: "Operador",
         operatorName: "Operador Test",
+      }),
+    );
+    expect(movements).toContainEqual(
+      expect.objectContaining({
+        id: "group_operator_payment:901",
+        type: "expense",
+        source: "investment",
+        categoryName: "Pago a operador grupal",
+        operatorName: "Operador Grupal",
       }),
     );
   });

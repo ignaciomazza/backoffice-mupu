@@ -13,6 +13,7 @@ import ServiceAllocationsEditor, {
   type ExcessAction,
   type ExcessMissingAccountAction,
 } from "@/components/investments/ServiceAllocationsEditor";
+import { getOperatorPaymentAllocatableAmount } from "@/utils/investments/allocations";
 import { parseAmountInput } from "@/utils/receipts/receiptForm";
 import type { BookingOption } from "@/types/receipts";
 
@@ -73,6 +74,7 @@ type Props = {
   operatorId: number | null;
   currency: string;
   amount: string;
+  paymentFeeAmount?: number;
   operators: OperatorLite[];
   onSelectionChange: (summary: SelectionSummary) => void;
 };
@@ -206,6 +208,7 @@ export default function OperatorPaymentServicesSection({
   operatorId,
   currency,
   amount,
+  paymentFeeAmount = 0,
   operators,
   onSelectionChange,
 }: Props) {
@@ -641,6 +644,12 @@ export default function OperatorPaymentServicesSection({
     );
   };
 
+  const totalPaymentAmount = parseAmountInput(amount) ?? 0;
+  const allocatablePaymentAmount = getOperatorPaymentAllocatableAmount(
+    totalPaymentAmount,
+    Number.isFinite(paymentFeeAmount) ? paymentFeeAmount : 0,
+  );
+
   return (
     <Section
       title="Servicios asociados"
@@ -847,7 +856,13 @@ export default function OperatorPaymentServicesSection({
                     Asignado: {formatMoney(allocationSummary.assignedTotal, currency || "ARS")}
                   </span>
                   <span>
-                    Total pago: {formatMoney(parseAmountInput(amount) ?? 0, currency || "ARS")}
+                    Total pago: {formatMoney(totalPaymentAmount, currency || "ARS")}
+                  </span>
+                  <span>
+                    Ajuste: {formatMoney(paymentFeeAmount || 0, currency || "ARS")}
+                  </span>
+                  <span>
+                    Disponible para asignar: {formatMoney(allocatablePaymentAmount, currency || "ARS")}
                   </span>
                   {allocationSummary.excess > 0.01 && (
                     <span>
@@ -865,7 +880,7 @@ export default function OperatorPaymentServicesSection({
                 <ServiceAllocationsEditor
                   services={selectedServices}
                   paymentCurrency={currency}
-                  paymentAmount={parseAmountInput(amount) ?? 0}
+                  paymentAmount={allocatablePaymentAmount}
                   initialAllocations={initialAllocations}
                   resetKey={resetKey}
                   excessAction={excessAction}

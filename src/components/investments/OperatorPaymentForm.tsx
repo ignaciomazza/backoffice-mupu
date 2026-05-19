@@ -15,7 +15,10 @@ import {
   RECEIPT_ADJUSTMENT_LABELS,
   normalizeReceiptAdjustmentLabel,
 } from "@/utils/receipts/paymentAdjustments";
-import { shouldConfirmFullExcessWithServices } from "@/utils/investments/allocations";
+import {
+  getOperatorPaymentAllocatableAmount,
+  shouldConfirmFullExcessWithServices,
+} from "@/utils/investments/allocations";
 import ServiceAllocationsEditor, {
   type AllocationSummary,
   type AllocationPayload,
@@ -498,6 +501,7 @@ type OperatorPaymentOption = {
   agency_investment_id?: number | null;
   description: string;
   amount: number;
+  payment_fee_amount?: number | null;
   currency: string;
   operator_id?: number | null;
   operator_name?: string | null;
@@ -738,6 +742,7 @@ export default function OperatorPaymentForm({
                 agency_investment_id: getNum(rec, "agency_investment_id"),
                 description: getStr(rec, "description") || "Pago a operador",
                 amount: getNum(rec, "amount") ?? 0,
+                payment_fee_amount: getNum(rec, "payment_fee_amount") ?? 0,
                 currency: (getStr(rec, "currency") || "ARS").toUpperCase(),
                 operator_id:
                   getNum(rec, "operator_id") ??
@@ -1413,10 +1418,20 @@ export default function OperatorPaymentForm({
 
   const editorPaymentCurrency =
     action === "attach" ? selectedPayment?.currency || "" : currency;
+  const editorPaymentFeeAmount =
+    action === "attach"
+      ? Number(selectedPayment?.payment_fee_amount || 0)
+      : paymentsFeeTotalNum;
   const editorPaymentAmount =
     action === "attach"
-      ? Number(selectedPayment?.amount || 0)
-      : Number(paymentsTotalNum || 0);
+      ? getOperatorPaymentAllocatableAmount(
+          Number(selectedPayment?.amount || 0),
+          editorPaymentFeeAmount,
+        )
+      : getOperatorPaymentAllocatableAmount(
+          Number(paymentsTotalNum || 0),
+          editorPaymentFeeAmount,
+        );
 
   /* ========= Detección de moneda de cuenta ========= */
   const guessAccountCurrency = useCallback(
@@ -1924,6 +1939,10 @@ export default function OperatorPaymentForm({
     const amountNum = round2(
       normalizedPaymentsPayload.reduce((sum, line) => sum + line.amount, 0),
     );
+    const allocatableAmountNum = getOperatorPaymentAllocatableAmount(
+      amountNum,
+      paymentsFeeTotalNum,
+    );
     if (!Number.isFinite(amountNum) || amountNum <= 0) {
       toast.error("El total de pagos debe ser mayor a cero.");
       return;
@@ -1936,7 +1955,7 @@ export default function OperatorPaymentForm({
     if (
       shouldConfirmFullExcessWithServices({
         hasServices: selectedServices.length > 0,
-        paymentAmount: amountNum,
+        paymentAmount: allocatableAmountNum,
         assignedTotal: allocationSummary.assignedTotal,
         excess: allocationSummary.excess,
         tolerance: EXCESS_TOLERANCE,
@@ -2608,9 +2627,7 @@ export default function OperatorPaymentForm({
                       );
                       const lineFee = paymentLineFeeByKey[line.key] || 0;
                       const lineAmountNum = parseAmountInput(line.amount) ?? 0;
-                      const lineImpact = round2(
-                        Math.max(0, lineAmountNum) + Math.max(0, lineFee),
-                      );
+                      const lineImpact = round2(Math.max(0, lineAmountNum));
                       return (
                         <div
                           key={line.key}
@@ -2857,13 +2874,13 @@ export default function OperatorPaymentForm({
 
                             <div className="md:col-span-12">
                               <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
-                                Impacta en deuda:{" "}
+                                Total de la línea:{" "}
                                 {formatMoney(
                                   lineImpact,
                                   line.payment_currency || effectivePaymentCurrency,
                                 )}
                                 {line.fee_mode !== "NONE"
-                                  ? ` (Ajuste: ${formatMoney(
+                                  ? ` (Incluye ajuste: ${formatMoney(
                                       lineFee,
                                       line.payment_currency ||
                                         effectivePaymentCurrency,

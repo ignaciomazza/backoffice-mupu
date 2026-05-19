@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildCostOnlyDraftNumbers,
   buildCostProrationDraftNumbers,
+  getOperatorPaymentAllocatableAmount,
   shouldConfirmFullExcessWithServices,
 } from "@/utils/investments/allocations";
 
@@ -76,5 +77,11 @@ describe("investments/allocations", () => {
         excess: 1000,
       }),
     ).toBe(false);
+  });
+
+  it("calculates allocatable operator payment as amount minus fee", () => {
+    expect(getOperatorPaymentAllocatableAmount(856615, 14132.41)).toBe(842482.59);
+    expect(getOperatorPaymentAllocatableAmount(100, 0)).toBe(100);
+    expect(getOperatorPaymentAllocatableAmount(100, 130)).toBe(0);
   });
 });
