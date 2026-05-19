@@ -145,6 +145,7 @@ export async function createCreditNote(
     taxableCardInterest: number;
     vatOnCardInterest: number;
     nonComputable: number;
+    exempt: number;
   };
 
   // Mapear cada alícuota a un "serviceDetail" compatible con createCreditNoteVoucher.
@@ -156,34 +157,35 @@ export async function createCreditNote(
     const is21 = iva.Id === 5;
     const is10 = iva.Id === 4;
     const isEx = iva.Id === 3;
+    const zeroVatLegacy = !isEx && base > 0 && Math.abs(imp) <= 0.01;
 
     return {
       sale_price: +(base + imp).toFixed(2),
 
-      taxableBase21: is21 ? base : 0,
+      taxableBase21: is21 && !zeroVatLegacy ? base : 0,
       commission21: 0,
-      tax_21: is21 ? imp : 0,
+      tax_21: is21 && !zeroVatLegacy ? imp : 0,
       vatOnCommission21: 0,
 
-      taxableBase10_5: is10 ? base : 0,
+      taxableBase10_5: is10 && !zeroVatLegacy ? base : 0,
       commission10_5: 0,
-      tax_105: is10 ? imp : 0,
+      tax_105: is10 && !zeroVatLegacy ? imp : 0,
       vatOnCommission10_5: 0,
 
       taxableCardInterest: 0,
       vatOnCardInterest: 0,
 
-      nonComputable: isEx ? base : 0,
+      nonComputable: 0,
+      exempt: isEx || zeroVatLegacy ? base : 0,
     };
   });
 
   const voucherNoGravado = Number(voucherData.ImpTotConc || 0);
   const voucherExento = Number(voucherData.ImpOpEx || 0);
-  const extraNonComputable = Number((voucherNoGravado + voucherExento).toFixed(2));
 
-  if (extraNonComputable > 0) {
+  if (voucherNoGravado > 0) {
     serviceDetails.push({
-      sale_price: extraNonComputable,
+      sale_price: Number(voucherNoGravado.toFixed(2)),
       taxableBase21: 0,
       commission21: 0,
       tax_21: 0,
@@ -194,7 +196,26 @@ export async function createCreditNote(
       vatOnCommission10_5: 0,
       taxableCardInterest: 0,
       vatOnCardInterest: 0,
-      nonComputable: extraNonComputable,
+      nonComputable: Number(voucherNoGravado.toFixed(2)),
+      exempt: 0,
+    });
+  }
+
+  if (voucherExento > 0) {
+    serviceDetails.push({
+      sale_price: Number(voucherExento.toFixed(2)),
+      taxableBase21: 0,
+      commission21: 0,
+      tax_21: 0,
+      vatOnCommission21: 0,
+      taxableBase10_5: 0,
+      commission10_5: 0,
+      tax_105: 0,
+      vatOnCommission10_5: 0,
+      taxableCardInterest: 0,
+      vatOnCardInterest: 0,
+      nonComputable: 0,
+      exempt: Number(voucherExento.toFixed(2)),
     });
   }
 
@@ -234,6 +255,12 @@ export async function createCreditNote(
     if (iva.Id === 4) return desc10[0] || "IVA 10.5%";
     return desc0[0] || "Exento";
   });
+  if (voucherNoGravado > 0) {
+    itemDescriptions.push(desc0[0] || "No gravado");
+  }
+  if (voucherExento > 0) {
+    itemDescriptions.push(desc0[0] || "Exento");
+  }
 
   // 9) Guardar NC + ítems en DB (transacción)
   const { note, items } = await prisma.$transaction(async (tx) => {

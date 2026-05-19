@@ -13,9 +13,9 @@ import prisma from "@/lib/prisma";
 import { toDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
 
 export interface IVAEntry {
-  Id: number; // 5 = 21%, 4 = 10.5%, 3 = Exento
+  Id: number; // 5 = 21%, 4 = 10.5%
   BaseImp: number;
-  Importe: number; // 0 si es exento
+  Importe: number;
 }
 
 export interface ServiceDetail {
@@ -30,7 +30,8 @@ export interface ServiceDetail {
   vatOnCommission10_5?: number | null;
   taxableCardInterest?: number | null;
   vatOnCardInterest?: number | null;
-  nonComputable: number;
+  nonComputable?: number | null;
+  exempt?: number | null;
 }
 
 export interface CreditNoteVoucherResponse {
@@ -45,6 +46,35 @@ type ServerStatus = { AppServer: string; DbServer: string; AuthServer: string };
 type VoucherInfo = { CbteFch?: string | number } | null;
 type CreateVoucherResp = { CAE?: string; CAEFchVto?: string };
 type CotizResp = { ResultGet?: { MonCotiz?: string } };
+
+const round2 = (value: number): number => Number(value.toFixed(2));
+
+function splitZeroVatEntries(entries: IVAEntry[]): {
+  taxableEntries: IVAEntry[];
+  zeroVatBase: number;
+} {
+  let zeroVatBase = 0;
+  const taxableEntries: IVAEntry[] = [];
+
+  entries.forEach((entry) => {
+    const base = round2(Number(entry.BaseImp || 0));
+    const importe = round2(Number(entry.Importe || 0));
+    if (base <= 0 && importe <= 0) return;
+
+    if (Math.abs(importe) <= 0.01) {
+      zeroVatBase = round2(zeroVatBase + Math.max(base, 0));
+      return;
+    }
+
+    taxableEntries.push({
+      Id: entry.Id,
+      BaseImp: base,
+      Importe: importe,
+    });
+  });
+
+  return { taxableEntries, zeroVatBase };
+}
 
 function isWeekend(date: Date): boolean {
   const d = date.getDay();
@@ -139,7 +169,12 @@ export async function createCreditNoteVoucher(
       (sum, s) => sum + (s.tax_105 ?? 0) + (s.vatOnCommission10_5 ?? 0),
       0,
     );
-    const exento = serviceDetails.reduce((sum, s) => sum + s.nonComputable, 0);
+    const noGravadoExplicito = round2(
+      serviceDetails.reduce((sum, s) => sum + Number(s.nonComputable ?? 0), 0),
+    );
+    const exentoExplicito = round2(
+      serviceDetails.reduce((sum, s) => sum + Number(s.exempt ?? 0), 0),
+    );
 
     const ivaEntries: IVAEntry[] = [];
     if (base21 || imp21)
@@ -170,11 +205,14 @@ export async function createCreditNoteVoucher(
         merged[e.Id].Importe += e.Importe;
       }
     });
-    const mergedIva = Object.values(merged).map((e) => ({
+    let mergedIva = Object.values(merged).map((e) => ({
       Id: e.Id,
       BaseImp: parseFloat(e.BaseImp.toFixed(2)),
       Importe: parseFloat(e.Importe.toFixed(2)),
     }));
+
+    const { taxableEntries, zeroVatBase } = splitZeroVatEntries(mergedIva);
+    mergedIva = taxableEntries;
 
     const totalIVAraw = mergedIva.reduce((sum, e) => sum + e.Importe, 0);
     const totalIVA = parseFloat(totalIVAraw.toFixed(2));
@@ -183,7 +221,13 @@ export async function createCreditNoteVoucher(
     );
     const netoCalculado = parseFloat((adjustedTotal - totalIVA).toFixed(2));
     const conceptosNoGravados = parseFloat(
-      (netoCalculado - netoGravado).toFixed(2),
+      (
+        netoCalculado -
+        netoGravado -
+        noGravadoExplicito -
+        exentoExplicito -
+        zeroVatBase
+      ).toFixed(2),
     );
     if (conceptosNoGravados < -0.01) {
       return {
@@ -192,10 +236,10 @@ export async function createCreditNoteVoucher(
           "No se pudo emitir: el neto gravado supera el neto total calculado. Revisá el desglose fiscal.",
       };
     }
-    const impTotConc = parseFloat(
-      Math.max(conceptosNoGravados, exento, 0).toFixed(2),
+    const impTotConc = noGravadoExplicito;
+    const impOpEx = round2(
+      exentoExplicito + zeroVatBase + (conceptosNoGravados > 0 ? conceptosNoGravados : 0),
     );
-    const impOpEx = 0;
     const neto = netoGravado;
 
     // ===== 4) Estado AFIP =====

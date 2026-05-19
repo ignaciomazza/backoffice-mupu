@@ -48,6 +48,7 @@ interface ServiceDetail {
   currency: string;
   description: string;
   nonComputable: number;
+  exempt: number;
   departure_date: Date;
   return_date: Date;
 }
@@ -111,6 +112,7 @@ const SERVICE_SPLIT_KEYS: Array<keyof ServiceDetail> = [
   "taxableCardInterest",
   "vatOnCardInterest",
   "nonComputable",
+  "exempt",
 ];
 
 function normalizeShares(shares: number[]): number[] {
@@ -171,6 +173,7 @@ function splitServiceDetailsByShares(
         taxableCardInterest: chunksByKey.taxableCardInterest[idx] ?? 0,
         vatOnCardInterest: chunksByKey.vatOnCardInterest[idx] ?? 0,
         nonComputable: chunksByKey.nonComputable[idx] ?? 0,
+        exempt: chunksByKey.exempt[idx] ?? 0,
       };
       out[idx].push(nextSvc);
     }
@@ -330,6 +333,7 @@ export async function createInvoices(
       currency: s.currency,
       description: s.description,
       nonComputable: s.nonComputable ?? 0,
+      exempt: s.exempt ?? 0,
       departure_date: s.departure_date,
       return_date: s.return_date,
     };

@@ -33,6 +33,35 @@ interface IVAEntry {
 type ServerStatus = { AppServer: string; DbServer: string; AuthServer: string };
 type LastInfo = { CbteFch?: string | number } | null;
 
+const round2 = (value: number): number => Number(value.toFixed(2));
+
+function splitZeroVatEntries(entries: IVAEntry[]): {
+  taxableEntries: IVAEntry[];
+  zeroVatBase: number;
+} {
+  let zeroVatBase = 0;
+  const taxableEntries: IVAEntry[] = [];
+
+  entries.forEach((entry) => {
+    const base = round2(Number(entry.BaseImp || 0));
+    const importe = round2(Number(entry.Importe || 0));
+    if (base <= 0 && importe <= 0) return;
+
+    if (Math.abs(importe) <= 0.01) {
+      zeroVatBase = round2(zeroVatBase + Math.max(base, 0));
+      return;
+    }
+
+    taxableEntries.push({
+      Id: entry.Id,
+      BaseImp: base,
+      Importe: importe,
+    });
+  });
+
+  return { taxableEntries, zeroVatBase };
+}
+
 function getAfipErrorDetails(err: unknown): Record<string, unknown> {
   if (!err || typeof err !== "object") return { message: String(err ?? "") };
   const anyErr = err as {
@@ -145,6 +174,8 @@ export async function createVoucherService(
     vatOnCommission10_5?: number | null;
     taxableCardInterest?: number | null;
     vatOnCardInterest?: number | null;
+    nonComputable?: number | null;
+    exempt?: number | null;
     return_date: Date;
     departure_date: Date;
   }>,
@@ -163,6 +194,7 @@ export async function createVoucherService(
     let neto = 0;
     let mergedIvaEntries: IVAEntry[] = [];
     let impTotConc = 0;
+    let impOpEx = 0;
 
     if (manualTotals) {
       const manual = computeManualTotals(manualTotals);
@@ -170,7 +202,7 @@ export async function createVoucherService(
         return { success: false, message: manual.error };
       }
       adjustedTotal = manual.result.impTotal;
-      impTotConc = parseFloat(
+      impOpEx = parseFloat(
         manual.result.ivaEntries
           .filter((entry) => entry.Id === 3)
           .reduce((sum, entry) => sum + Number(entry.BaseImp || 0), 0)
@@ -224,6 +256,12 @@ export async function createVoucherService(
         (sum, s) => sum + (s.tax_105 ?? 0) + (s.vatOnCommission10_5 ?? 0),
         0,
       );
+      const explicitNoGravado = round2(
+        serviceDetails.reduce((sum, s) => sum + Number(s.nonComputable ?? 0), 0),
+      );
+      const explicitExento = round2(
+        serviceDetails.reduce((sum, s) => sum + Number(s.exempt ?? 0), 0),
+      );
 
       const ivaEntries: IVAEntry[] = [];
       if (base21 || imp21)
@@ -263,6 +301,9 @@ export async function createVoucherService(
         Importe: parseFloat(e.Importe.toFixed(2)),
       }));
 
+      const { taxableEntries, zeroVatBase } = splitZeroVatEntries(mergedIvaEntries);
+      mergedIvaEntries = taxableEntries;
+
       totalIVA = parseFloat(
         mergedIvaEntries.reduce((sum, e) => sum + e.Importe, 0).toFixed(2),
       );
@@ -271,7 +312,13 @@ export async function createVoucherService(
         mergedIvaEntries.reduce((sum, e) => sum + e.BaseImp, 0).toFixed(2),
       );
       const conceptosNoGravados = parseFloat(
-        (netoCalculado - netoGravado).toFixed(2),
+        (
+          netoCalculado -
+          netoGravado -
+          explicitNoGravado -
+          explicitExento -
+          zeroVatBase
+        ).toFixed(2),
       );
 
       if (conceptosNoGravados < -0.01) {
@@ -283,7 +330,10 @@ export async function createVoucherService(
       }
 
       neto = netoGravado;
-      impTotConc = conceptosNoGravados > 0 ? conceptosNoGravados : 0;
+      impTotConc = explicitNoGravado;
+      impOpEx = round2(
+        explicitExento + zeroVatBase + (conceptosNoGravados > 0 ? conceptosNoGravados : 0),
+      );
     }
 
     // 4) Estado AFIP / pto. de venta / numeración
@@ -381,7 +431,7 @@ export async function createVoucherService(
       FchVtoPago,
       ImpTotal: adjustedTotal,
       ImpTotConc: impTotConc,
-      ImpOpEx: 0,
+      ImpOpEx: impOpEx,
       ImpNeto: neto,
       ImpIVA: totalIVA,
       MonId: currency,

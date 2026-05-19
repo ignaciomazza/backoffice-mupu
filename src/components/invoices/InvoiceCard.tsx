@@ -136,6 +136,8 @@ export default function InvoiceCard({
     CbteFch: number | string | Date;
     ImpNeto: number;
     ImpIVA: number;
+    ImpTotConc?: number;
+    ImpOpEx?: number;
     Iva: { Id: number; BaseImp: number; Importe: number }[];
     CbteTipo?: number;
   };
@@ -164,10 +166,15 @@ export default function InvoiceCard({
       base105 = 0,
       exento = 0;
     Iva.forEach(({ Id, BaseImp, Importe }) => {
+      if ((Id === 5 || Id === 4) && Math.abs(Number(Importe || 0)) <= 0.01) {
+        exento += Number(BaseImp || 0);
+        return;
+      }
       if (Id === 5) base21 += BaseImp + Importe;
       else if (Id === 4) base105 += BaseImp + Importe;
       else exento += BaseImp;
     });
+    exento += Number(voucher?.ImpTotConc || 0) + Number(voucher?.ImpOpEx || 0);
     return { base21, base105, exento };
   }, [voucher]);
 
@@ -394,7 +401,7 @@ export default function InvoiceCard({
           </p>
         </div>
         <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
-          <p className="text-xs opacity-70">Exento</p>
+          <p className="text-xs opacity-70">Exento / No gravado</p>
           <p className="text-sm font-medium tabular-nums">
             {fmtMoney(bases.exento, invoice.currency)}
           </p>
