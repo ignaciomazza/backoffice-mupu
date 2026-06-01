@@ -217,9 +217,9 @@ export default function InvestmentsForm({
       total += amount;
       const feeValue = parseAmountInput(line.fee_value) ?? 0;
       if (line.fee_mode === "PERCENT") {
-        fees += amount * ((Number.isFinite(feeValue) && feeValue > 0 ? feeValue : 0) / 100);
+        fees += amount * ((Number.isFinite(feeValue) ? feeValue : 0) / 100);
       } else if (line.fee_mode === "FIXED") {
-        fees += Number.isFinite(feeValue) && feeValue > 0 ? feeValue : 0;
+        fees += Number.isFinite(feeValue) ? feeValue : 0;
       }
       const code = String(line.payment_currency || defaultPaymentCurrency)
         .trim()
@@ -879,7 +879,7 @@ export default function InvestmentsForm({
                         const rawAmount = parseAmountInput(line.amount);
                         const amount = rawAmount != null && rawAmount > 0 ? rawAmount : 0;
                         const rawFee = parseAmountInput(line.fee_value);
-                        const feeValue = rawFee != null && rawFee > 0 ? rawFee : 0;
+                        const feeValue = rawFee != null && Number.isFinite(rawFee) ? rawFee : 0;
                         const feeAmount =
                           line.fee_mode === "PERCENT"
                             ? round2(amount * (feeValue / 100))
@@ -888,7 +888,7 @@ export default function InvestmentsForm({
                               : 0;
                         const lineCurrency =
                           line.payment_currency || defaultPaymentCurrency;
-                        const impact = round2(amount);
+                        const impact = round2(amount + feeAmount);
                         return (
                           <div
                             key={line.key}
@@ -1163,7 +1163,6 @@ export default function InvestmentsForm({
                                       ? "0.01"
                                       : undefined
                                   }
-                                  min={line.fee_mode === "PERCENT" ? "0" : undefined}
                                   inputMode="decimal"
                                   className={inputClass}
                                   value={line.fee_value}

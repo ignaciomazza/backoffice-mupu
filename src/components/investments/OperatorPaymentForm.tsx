@@ -404,11 +404,10 @@ const calcPaymentLineFee = (line: PaymentLineDraft) => {
   const value = parseAmountInput(line.fee_value) ?? 0;
   if (line.fee_mode === "NONE") return 0;
   if (amount <= 0) return 0;
-  if (value < 0) return 0;
   if (line.fee_mode === "PERCENT") {
-    return round2(Math.max(0, amount) * (Math.max(0, value) / 100));
+    return round2(amount * (value / 100));
   }
-  return round2(Math.max(0, value));
+  return round2(value);
 };
 
 /* ========= Categorías ========= */
@@ -1854,7 +1853,7 @@ export default function OperatorPaymentForm({
         !!line.payment_method.trim() ||
         !!line.account.trim() ||
         line.fee_mode !== "NONE" ||
-        feeValueNum > 0
+        Math.abs(feeValueNum) > EXCESS_TOLERANCE
       );
     });
     if (filledLines.length === 0) {
@@ -1899,11 +1898,10 @@ export default function OperatorPaymentForm({
       }
       if (line.fee_mode !== "NONE") {
         const feeValueNum = parseAmountInput(line.fee_value) ?? 0;
-        if (feeValueNum < 0) {
-          toast.error(`Línea ${lineNo}: ajuste del cobro inválido.`);
-          return;
-        }
-        if (line.fee_mode === "PERCENT" && feeValueNum > 1000) {
+        if (
+          line.fee_mode === "PERCENT" &&
+          Math.abs(feeValueNum) > 1000
+        ) {
           toast.error(`Línea ${lineNo}: porcentaje de ajuste inválido.`);
           return;
         }
@@ -1923,9 +1921,10 @@ export default function OperatorPaymentForm({
             : undefined,
         fee_value:
           line.fee_mode === "FIXED" || line.fee_mode === "PERCENT"
-            ? Math.max(0, parseAmountInput(line.fee_value) ?? 0)
+            ? parseAmountInput(line.fee_value) ?? 0
             : undefined,
-        fee_amount: lineFee > 0 ? lineFee : undefined,
+        fee_amount:
+          Math.abs(lineFee) > EXCESS_TOLERANCE ? lineFee : undefined,
       });
     }
     const paymentCurrencySet = Array.from(
@@ -2033,7 +2032,10 @@ export default function OperatorPaymentForm({
         excess_missing_account_action: excessMissingAccountAction,
         payment_method: normalizedPaymentsPayload[0]?.payment_method,
         account: normalizedPaymentsPayload[0]?.account,
-        payment_fee_amount: paymentsFeeTotalNum > 0 ? paymentsFeeTotalNum : undefined,
+        payment_fee_amount:
+          Math.abs(paymentsFeeTotalNum) > EXCESS_TOLERANCE
+            ? paymentsFeeTotalNum
+            : undefined,
         payments: normalizedPaymentsPayload,
       };
 
@@ -2627,7 +2629,7 @@ export default function OperatorPaymentForm({
                       );
                       const lineFee = paymentLineFeeByKey[line.key] || 0;
                       const lineAmountNum = parseAmountInput(line.amount) ?? 0;
-                      const lineImpact = round2(Math.max(0, lineAmountNum));
+                      const lineImpact = round2(lineAmountNum + lineFee);
                       return (
                         <div
                           key={line.key}

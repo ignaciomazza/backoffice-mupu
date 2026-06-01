@@ -539,9 +539,9 @@ const calcPaymentLineFee = (line: {
   const rawFeeValue = parseAmountInput(line.fee_value) ?? 0;
   if (line.fee_mode === "NONE") return 0;
   if (line.fee_mode === "PERCENT") {
-    return round2(Math.max(0, amount) * (Math.max(0, rawFeeValue) / 100));
+    return round2(Math.max(0, amount) * (rawFeeValue / 100));
   }
-  return round2(Math.max(0, rawFeeValue));
+  return round2(rawFeeValue);
 };
 
 const formatCurrencyMoney = (amount: number, currency: string) => {
@@ -1339,7 +1339,8 @@ export default function ReceiptForm({
         (p) =>
           p.fee_mode === "FIXED" ||
           p.fee_mode === "PERCENT" ||
-          (typeof p.fee_amount === "number" && p.fee_amount > 0),
+          (typeof p.fee_amount === "number" &&
+            Math.abs(p.fee_amount) > DEBT_TOLERANCE),
       );
       return initialPayments.map((p, idx) => ({
         key: uid(),
@@ -1362,7 +1363,7 @@ export default function ReceiptForm({
             : !hasPerLineFee &&
                 idx === 0 &&
                 initialFeeAmount != null &&
-                initialFeeAmount > 0
+                Math.abs(initialFeeAmount) > DEBT_TOLERANCE
               ? "FIXED"
               : "NONE",
         fee_value:
@@ -1371,7 +1372,7 @@ export default function ReceiptForm({
             : !hasPerLineFee &&
                 idx === 0 &&
                 initialFeeAmount != null &&
-                initialFeeAmount > 0
+                Math.abs(initialFeeAmount) > DEBT_TOLERANCE
               ? String(initialFeeAmount)
               : "",
         fee_label: normalizeReceiptAdjustmentLabel(
@@ -1429,7 +1430,7 @@ export default function ReceiptForm({
     for (const line of paymentLines) {
       const amount = parseAmountInput(line.amount) ?? 0;
       const fee = paymentLineFeeByKey[line.key] ?? calcPaymentLineFee(line);
-      acc[line.key] = round2(Math.max(0, amount) + Math.max(0, fee));
+      acc[line.key] = round2(Math.max(0, amount) + fee);
     }
     return acc;
   }, [paymentLines, paymentLineFeeByKey]);
@@ -1449,7 +1450,7 @@ export default function ReceiptForm({
     const acc: Record<string, number> = {};
     for (const line of paymentLines) {
       const fee = paymentLineFeeByKey[line.key] ?? calcPaymentLineFee(line);
-      if (fee <= 0) continue;
+      if (Math.abs(fee) <= DEBT_TOLERANCE) continue;
       const currency = normalizeCurrencyCodeLoose(line.payment_currency);
       acc[currency] = round2((acc[currency] || 0) + fee);
     }
@@ -2235,8 +2236,8 @@ export default function ReceiptForm({
       });
 
     const parts = lines.map((line) =>
-      line.fee > 0
-        ? `${line.label}: ${fmt(line.amount + line.fee)} ${line.currency} (CF ${fmt(line.fee)})`
+      Math.abs(line.fee) > DEBT_TOLERANCE
+        ? `${line.label}: ${fmt(line.amount + line.fee)} ${line.currency} (Ajuste ${fmt(line.fee)})`
         : `${line.label}: ${fmt(line.amount)} ${line.currency}`,
     );
 
@@ -2808,7 +2809,7 @@ export default function ReceiptForm({
         line.payment_currency || effectiveCurrency || "ARS",
       );
       const lineFee = paymentLineFeeByKey[line.key] ?? calcPaymentLineFee(line);
-      const totalLine = amountVal + Math.max(0, lineFee);
+      const totalLine = amountVal + lineFee;
       if (totalLine <= 0) continue;
       acc[lineCurrency] = round2((acc[lineCurrency] || 0) + totalLine);
     }
@@ -3190,10 +3191,10 @@ export default function ReceiptForm({
 
         if (l.fee_mode !== "NONE") {
           const fv = parseAmountInput(l.fee_value);
-          if (fv == null || fv < 0) {
+          if (fv == null) {
             e[`payment_fee_value_${idx}`] = "Ajuste del cobro inválido.";
           }
-          if (l.fee_mode === "PERCENT" && fv != null && fv > 1000) {
+          if (l.fee_mode === "PERCENT" && fv != null && Math.abs(fv) > 1000) {
             e[`payment_fee_value_${idx}`] =
               "El porcentaje del ajuste es muy alto.";
           }
@@ -3373,9 +3374,10 @@ export default function ReceiptForm({
             l.fee_mode === "FIXED" || l.fee_mode === "PERCENT"
               ? (feeValue ?? 0)
               : undefined,
-          fee_amount: feeAmount > 0 ? feeAmount : undefined,
+          fee_amount:
+            Math.abs(feeAmount) > DEBT_TOLERANCE ? feeAmount : undefined,
           fee_label:
-            feeAmount > 0
+            Math.abs(feeAmount) > DEBT_TOLERANCE
               ? normalizeReceiptAdjustmentLabel(l.fee_label)
               : undefined,
           operator_id: l.operator_id ?? null,
@@ -3407,7 +3409,8 @@ export default function ReceiptForm({
     }
 
     const finalFee = paymentsFeeTotalNum;
-    const paymentFeeForPayload = finalFee > 0 ? finalFee : undefined;
+    const paymentFeeForPayload =
+      Math.abs(finalFee) > DEBT_TOLERANCE ? finalFee : undefined;
 
     // para los campos legacy: preferí un pago real (>0), sino el primero (puede ser crédito)
     const primaryPayment =

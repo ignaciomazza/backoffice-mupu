@@ -384,7 +384,8 @@ function dueStatusTone(status?: string): StatTone {
 export default function OperatorInsightsPage() {
   const { token } = useAuth();
   const { operators } = useAgencyOperators(token);
-  const [selectedOperatorId, setSelectedOperatorId] = useState<number | "">("");
+  const [selectedOperatorId, setSelectedOperatorId] = useState<number | null>(null);
+  const [didAutoSelectOperator, setDidAutoSelectOperator] = useState(false);
   const [periodType, setPeriodType] = useState<PeriodType>("month");
   const [dateMode, setDateMode] = useState<DateMode>("creation");
   const [view, setView] = useState<InsightsView>("all");
@@ -430,10 +431,15 @@ export default function OperatorInsightsPage() {
   }, [data?.operator?.agency_operator_id, operators, selectedOperatorId]);
 
   useEffect(() => {
-    if (selectedOperatorId) return;
+    if (didAutoSelectOperator) return;
+    if (selectedOperatorId != null) {
+      setDidAutoSelectOperator(true);
+      return;
+    }
     if (operators.length === 0) return;
     setSelectedOperatorId(operators[0].id_operator);
-  }, [operators, selectedOperatorId]);
+    setDidAutoSelectOperator(true);
+  }, [operators, selectedOperatorId, didAutoSelectOperator]);
 
   const range = useMemo(() => {
     if (periodType === "day") {
@@ -722,7 +728,7 @@ export default function OperatorInsightsPage() {
       toast.error("Sesion no iniciada");
       return;
     }
-    if (!selectedOperatorId) {
+    if (selectedOperatorId == null) {
       toast.error("Selecciona un operador");
       return;
     }
@@ -749,7 +755,7 @@ export default function OperatorInsightsPage() {
   }, [token, selectedOperatorId, range, dateMode]);
 
   useEffect(() => {
-    if (!selectedOperatorId) return;
+    if (selectedOperatorId == null) return;
     loadInsights();
   }, [selectedOperatorId, range, dateMode, loadInsights]);
 
@@ -861,15 +867,15 @@ export default function OperatorInsightsPage() {
                     </label>
                     <OperatorPicker
                       operators={operators}
-                      valueId={
-                        typeof selectedOperatorId === "number"
-                          ? selectedOperatorId
-                          : null
-                      }
+                      valueId={selectedOperatorId}
                       onSelect={(operator) =>
                         setSelectedOperatorId(operator.id_operator)
                       }
-                      onClear={() => setSelectedOperatorId("")}
+                      onClear={() => {
+                        setSelectedOperatorId(null);
+                        setData(null);
+                        setDidAutoSelectOperator(true);
+                      }}
                       disabled={operators.length === 0}
                       placeholder={
                         operators.length

@@ -954,6 +954,24 @@ export default async function handler(
 
     if (q) {
       const numericQ = safeNumber(q);
+      const queryTokens = q
+        .split(/\s+/)
+        .map((token) => token.trim())
+        .filter(Boolean)
+        .slice(0, 4);
+      const tokenizedNameClauses: Prisma.ClientWhereInput[] =
+        queryTokens.length > 1
+          ? [
+              {
+                AND: queryTokens.map((token) => ({
+                  OR: [
+                    { first_name: { contains: token, mode: "insensitive" } },
+                    { last_name: { contains: token, mode: "insensitive" } },
+                  ],
+                })),
+              },
+            ]
+          : [];
       where.OR = [
         { first_name: { contains: q, mode: "insensitive" } },
         { last_name: { contains: q, mode: "insensitive" } },
@@ -964,6 +982,7 @@ export default async function handler(
         { email: { contains: q, mode: "insensitive" } },
         { phone: { contains: q, mode: "insensitive" } },
         { locality: { contains: q, mode: "insensitive" } },
+        ...tokenizedNameClauses,
         ...(numericQ ? [{ id_client: numericQ }, { agency_client_id: numericQ }] : []),
       ];
     }

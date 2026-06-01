@@ -408,11 +408,11 @@ const normalizeInvestmentPaymentFee = (line: {
     ? Number(line.fee_amount)
     : undefined;
 
-  if (!mode) return round2(Math.max(0, explicitAmount ?? 0));
+  if (!mode) return round2(explicitAmount ?? 0);
   if (mode === "PERCENT") {
-    return round2(Math.max(0, line.amount) * (Math.max(0, value ?? 0) / 100));
+    return round2(Math.max(0, line.amount) * ((value ?? 0) / 100));
   }
-  return round2(Math.max(0, value ?? 0));
+  return round2(value ?? 0);
 };
 
 const normalizeInvestmentPayments = (
@@ -457,7 +457,7 @@ const normalizeInvestmentPayments = (
       fee_value:
         fee_mode != null
           ? Number.isFinite(fee_value)
-            ? Math.max(0, fee_value)
+            ? fee_value
             : 0
           : undefined,
       fee_amount,
@@ -1178,19 +1178,16 @@ export default async function handler(
         "payment_fee_amount",
       );
       const existingPaymentFeeAmount = schemaFlags.hasPaymentFeeAmount
-        ? Math.max(
-            0,
-            Number(
-              (exists as { payment_fee_amount?: unknown }).payment_fee_amount ?? 0,
-            ) || 0,
-          )
+        ? Number(
+            (exists as { payment_fee_amount?: unknown }).payment_fee_amount ?? 0,
+          ) || 0
         : 0;
       const nextPaymentFeeAmountValue = normalizedPayments.length > 0
         ? paymentsFeeAmount ?? 0
         : hasPaymentFeePayload
           ? b.payment_fee_amount === null
             ? 0
-            : Math.max(0, Number(b.payment_fee_amount) || 0)
+            : Number(b.payment_fee_amount) || 0
           : existingPaymentFeeAmount;
 
       // conversión (acepta Decimal o null para limpiar)

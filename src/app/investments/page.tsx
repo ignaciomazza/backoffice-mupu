@@ -754,7 +754,7 @@ export default function Page() {
               fee_value:
                 fee_mode !== "NONE" &&
                 Number.isFinite(feeValueRaw) &&
-                feeValueRaw > 0
+                Math.abs(feeValueRaw) > PAYMENT_LINE_TOLERANCE
                   ? fee_mode === "FIXED"
                     ? toMoneyDraft(feeValueRaw, paymentCurrency || "ARS")
                     : String(feeValueRaw)
@@ -1731,11 +1731,11 @@ export default function Page() {
         fee_mode === "PERCENT"
           ? round2(
               (Number.isFinite(amount) && amount > 0 ? amount : 0) *
-                ((Number.isFinite(feeValue) && feeValue > 0 ? feeValue : 0) /
+                ((Number.isFinite(feeValue) ? feeValue : 0) /
                   100),
             )
           : fee_mode === "FIXED"
-            ? round2(Number.isFinite(feeValue) && feeValue > 0 ? feeValue : 0)
+            ? round2(Number.isFinite(feeValue) ? feeValue : 0)
             : 0;
       return {
         key: line.key,
@@ -1748,7 +1748,7 @@ export default function Page() {
         ),
         fee_mode,
         fee_value:
-          fee_mode === "NONE" || !Number.isFinite(feeValue) || feeValue < 0
+          fee_mode === "NONE" || !Number.isFinite(feeValue)
             ? 0
             : feeValue,
         fee_amount,
@@ -2181,7 +2181,7 @@ export default function Page() {
           !!line.payment_method ||
           !!line.account ||
           line.fee_mode !== "NONE" ||
-          Number(line.fee_value || 0) > 0;
+          Math.abs(Number(line.fee_value || 0)) > PAYMENT_LINE_TOLERANCE;
 
         if (!hasAnyValue) continue;
 

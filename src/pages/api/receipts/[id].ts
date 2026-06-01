@@ -224,7 +224,7 @@ const normalizeReceiptPaymentFee = (line: {
     : undefined;
 
   if (!mode) {
-    const amount = explicitAmount != null ? Math.max(0, explicitAmount) : 0;
+    const amount = explicitAmount != null ? explicitAmount : 0;
     return {
       fee_mode: undefined,
       fee_value: undefined,
@@ -233,7 +233,7 @@ const normalizeReceiptPaymentFee = (line: {
   }
 
   if (mode === "PERCENT") {
-    const pct = value != null ? Math.max(0, value) : 0;
+    const pct = value != null ? value : 0;
     const amount = round2((line.amount * pct) / 100);
     return {
       fee_mode: "PERCENT" as const,
@@ -242,7 +242,7 @@ const normalizeReceiptPaymentFee = (line: {
     };
   }
 
-  const fixed = value != null ? Math.max(0, value) : 0;
+  const fixed = value != null ? value : 0;
   return {
     fee_mode: "FIXED" as const,
     fee_value: round2(fixed),
@@ -1791,7 +1791,7 @@ export default async function handler(
       const hasPayments = Array.isArray(payments) && payments.length > 0;
       let normalizedPayments: ReceiptPaymentLineNormalized[] = [];
       let paymentFeeAmountNum = Number.isFinite(toNum(payment_fee_amount))
-        ? Math.max(0, toNum(payment_fee_amount))
+        ? toNum(payment_fee_amount)
         : 0;
 
       if (hasPayments) {
@@ -1809,7 +1809,7 @@ export default async function handler(
               : undefined,
           });
           const feeLabel =
-            (normalizedFee.fee_amount ?? 0) > 0
+            Math.abs(normalizedFee.fee_amount ?? 0) > DEBT_TOLERANCE
               ? normalizeReceiptAdjustmentLabel(
                   p.fee_label ?? DEFAULT_RECEIPT_ADJUSTMENT_LABEL,
                 )
@@ -1903,8 +1903,8 @@ export default async function handler(
       const candidatePaymentFeeAmountForDebt = hasPayments
         ? paymentFeeAmountNum
         : hasPaymentFeeAmountField
-          ? Math.max(0, toNum(payment_fee_amount))
-          : Math.max(0, toNum(existing.payment_fee_amount ?? 0));
+          ? toNum(payment_fee_amount)
+          : toNum(existing.payment_fee_amount ?? 0);
       if (serviceAllocationsForValidation.length > 0) {
         const availableByCurrency = buildServiceAllocationAvailabilityByCurrency({
           amount: amountNum,
@@ -2296,7 +2296,7 @@ export default async function handler(
                 ...(schemaFlags.hasPaymentFeeLabel
                   ? {
                       fee_label:
-                        p.fee_amount && p.fee_amount > 0
+                        Math.abs(Number(p.fee_amount ?? 0)) > DEBT_TOLERANCE
                           ? p.fee_label ?? null
                           : null,
                     }
